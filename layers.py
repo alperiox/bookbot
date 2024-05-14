@@ -4,7 +4,7 @@ from torch.nn import functional as F
 
 class Linear:
     def __init__(self, n_in, n_out, bias=True):
-        self.weight = torch.randn(n_in, n_out) / n_in**.5
+        self.weight = torch.randn(n_in, n_out) / n_in**0.5
 
         self.has_bias = bias
         if self.has_bias:
@@ -104,7 +104,7 @@ class Model:
 
         self.embedding = Embedding(vocab_size, n_embed)
 
-        self.layers.append(Linear(n_embed*block_size, n_hidden))
+        self.layers.append(Linear(n_embed * block_size, n_hidden))
 
         self.layers += [LinearBlock(n_hidden, n_hidden) for _ in range(n_layers - 2)]
 
@@ -121,7 +121,7 @@ class Model:
 
         self.out = x
         return self.out
-    
+
     def eval(self):
         for layer in self.layers:
             if isinstance(layer, BatchNorm1d):
@@ -130,4 +130,6 @@ class Model:
                 layer.bn.training = False
 
     def parameters(self):
-        return [self.embedding.weight] + [param for layer in self.layers for param in layer.parameters()]
+        return [self.embedding.weight] + [
+            param for layer in self.layers for param in layer.parameters()
+        ]
