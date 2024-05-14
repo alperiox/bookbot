@@ -1,0 +1,6 @@
+books
+__pycache__
+.ruff_cache
+.venv
+artifacts
+poetry.lock
