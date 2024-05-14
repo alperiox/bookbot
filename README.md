@@ -1,6 +1,6 @@
 # bookbot
 
-a project that uses a neural network to read the given PDF file and generate text that looks like from the book.
+a project that reads the given PDF file and uses a neural network to generate text that looks like from the book.
 
 the built-in neural network is a MLP network that's built with pure pytorch (from scratch) along with batch normalization layer and Kaiming initialization.
 
