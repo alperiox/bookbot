@@ -52,8 +52,13 @@ def setup_blocks(paragraphs, char_to_ix, block_size):
 
     return blocks, targets
 
+
 def prepare_dataloaders(
-    blocks, targets, batch_size, split_ratio=0.2, generator=torch.Generator().manual_seed(42)
+    blocks,
+    targets,
+    batch_size,
+    split_ratio=0.2,
+    generator=torch.Generator().manual_seed(42),
 ):
     # now we'll need to convert the singular samples to tensors, and then to batches
     inputs = torch.tensor(blocks, dtype=torch.long)
