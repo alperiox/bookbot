@@ -1,0 +1,20 @@
+[tool.poetry]
+name = "bookbot"
+version = "0.1.0"
+description = "a package that trains a simple neural net to imitate the given pdf books."
+authors = ["Alper Balbay <itsc0508@gmail.com>"]
+readme = "README.md"
+
+[tool.poetry.dependencies]
+python = "^3.11"
+torch = "^2.3.0"
+isort = "^5.13.2"
+numpy = "^1.26.4"
+
+
+[tool.poetry.group.dev.dependencies]
+ruff = "^0.4.4"
+
+[build-system]
+requires = ["poetry-core"]
+build-backend = "poetry.core.masonry.api"
