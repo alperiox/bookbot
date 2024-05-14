@@ -1,5 +1,6 @@
 import torch
 from torch.nn import functional as F
+from tqdm import tqdm
 
 from utils import load_artifacts, save_artifacts
 
@@ -28,27 +29,29 @@ def train_loop(model, train_loader, test_loader, epochs, learning_rate):
     train_losses = torch.zeros(epochs)
     valid_losses = torch.zeros(epochs)
     for epoch in range(epochs):
-        for i, (x, y) in enumerate(train_loader):
+        bar = tqdm(enumerate(train_loader), total=len(train_loader))
+        print("========")
+        print("TRAINING (epoch:%d/%d)" % (epoch + 1, epochs))
+        for i, (x, y) in bar:
             outs = model(x)
             loss = F.cross_entropy(outs, y)
             loss.backward()
             optimize_step(parameters, learning_rate)
             loss = loss.item()
-            if i % 1000 == 0:
-                print(
-                    f"TRAIN ({epoch}/{epochs}) ({epoch*train_loader.batch_size + i*train_loader.batch_size}/{len(train_loader.dataset)}): loss {loss}"
-                )
-            train_losses[epoch] = loss
-        
-        for i, (x, y) in enumerate(test_loader):
+
+            train_losses[epoch] += loss / len(train_loader)
+            desc_text = f"({epoch*train_loader.batch_size + i*train_loader.batch_size}/{len(train_loader.dataset)}): loss {train_losses[epoch]:.4f}"
+            bar.set_description(desc_text)
+
+        print("TESTING")
+        bar = tqdm(enumerate(test_loader), total=len(test_loader))
+        for i, (x, y) in bar:
             loss = evaluate(model, x, y)
-            if i % 1000 == 0:
-                print(
-                    f"TEST ({epoch}/{epochs}) ({epoch*test_loader.batch_size + i*test_loader.batch_size}/{len(test_loader.dataset)}): loss {loss}"
-                )
-            valid_losses[epoch] = loss
-        
-        
+
+            valid_losses[epoch] += loss / len(test_loader)
+            desc_text = f"({epoch*test_loader.batch_size + i*test_loader.batch_size}/{len(test_loader.dataset)}): loss {valid_losses[epoch]:.4f}"
+            bar.set_description(desc_text)
+
     save_artifacts(
         model=model,
         train_losses=train_losses,
@@ -72,7 +75,7 @@ def generate_text(seed_text, model=None, char_to_ix=None, ix_to_char=None, n_cha
         generated_text = seed_text
         # pad or truncate the seed text to the block size
         if len(generated_text) > model.block_size:
-            input_text = generated_text[:model.block_size]
+            input_text = generated_text[: model.block_size]
         else:
             input_text = " " * (model.block_size - len(generated_text)) + generated_text
 
