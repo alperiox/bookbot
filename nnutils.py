@@ -70,9 +70,13 @@ def generate_text(seed_text, model=None, char_to_ix=None, ix_to_char=None, n_cha
     with torch.no_grad():
         num_generated_chars = 0
         generated_text = seed_text
-        input_text = generated_text[:model.block_size]
+        # pad or truncate the seed text to the block size
+        if len(generated_text) > model.block_size:
+            input_text = generated_text[:model.block_size]
+        else:
+            input_text = " " * (model.block_size - len(generated_text)) + generated_text
 
-        while num_generated_chars < n_chars:
+        while num_generated_chars < n_chars and generated_text[-1] != "|":
             input_block = [char_to_ix[char] for char in input_text]
             input_tensor = torch.tensor(input_block, dtype=torch.long).unsqueeze(0)
             out = model(input_tensor)
@@ -84,4 +88,4 @@ def generate_text(seed_text, model=None, char_to_ix=None, ix_to_char=None, n_cha
 
             num_generated_chars += 1
 
-    return generated_text
+    return generated_text.strip("|")
