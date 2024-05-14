@@ -1,0 +1,87 @@
+import torch
+from torch.nn import functional as F
+
+from utils import load_artifacts, save_artifacts
+
+
+def optimize_step(parameters, learning_rate=0.001):
+    for param in parameters:
+        param.data += -learning_rate * param.grad
+
+    for param in parameters:
+        param.grad = None
+
+
+def evaluate(model, x, y):
+    with torch.no_grad():
+        outs = model(x)
+        loss = F.cross_entropy(outs, y)
+    return loss.item()
+
+
+def train_loop(model, train_loader, test_loader, epochs, learning_rate):
+    # a single training loop
+    parameters = model.parameters()
+    for p in parameters:
+        p.requires_grad = True
+
+    train_losses = torch.zeros(epochs)
+    valid_losses = torch.zeros(epochs)
+    for epoch in range(epochs):
+        for i, (x, y) in enumerate(train_loader):
+            outs = model(x)
+            loss = F.cross_entropy(outs, y)
+            loss.backward()
+            optimize_step(parameters, learning_rate)
+            loss = loss.item()
+            if i % 1000 == 0:
+                print(
+                    f"TRAIN ({epoch}/{epochs}) ({epoch*train_loader.batch_size + i*train_loader.batch_size}/{len(train_loader.dataset)}): loss {loss}"
+                )
+            train_losses[epoch] = loss
+        
+        for i, (x, y) in enumerate(test_loader):
+            loss = evaluate(model, x, y)
+            if i % 1000 == 0:
+                print(
+                    f"TEST ({epoch}/{epochs}) ({epoch*test_loader.batch_size + i*test_loader.batch_size}/{len(test_loader.dataset)}): loss {loss}"
+                )
+            valid_losses[epoch] = loss
+        
+        
+    save_artifacts(
+        model=model,
+        train_losses=train_losses,
+        valid_losses=valid_losses,
+        train_loader=train_loader,
+        test_loader=test_loader,
+    )
+
+
+def generate_text(seed_text, model=None, char_to_ix=None, ix_to_char=None, n_chars=100):
+    if not model:
+        model = load_artifacts("model")["model"]
+    if not char_to_ix:
+        char_to_ix = load_artifacts("char_to_ix")["char_to_ix"]
+    if not ix_to_char:
+        ix_to_char = load_artifacts("ix_to_char")["ix_to_char"]
+
+    model.eval()
+    with torch.no_grad():
+        num_generated_chars = 0
+        generated_text = seed_text
+        input_text = generated_text[:model.block_size]
+
+        while num_generated_chars < n_chars:
+            input_block = [char_to_ix[char] for char in input_text]
+            input_tensor = torch.tensor(input_block, dtype=torch.long).unsqueeze(0)
+            out = model(input_tensor)
+            # sample the next character
+            next_char_ix = torch.multinomial(F.softmax(out, dim=1), 1).item()
+            next_char = ix_to_char[next_char_ix]
+            generated_text += next_char
+            input_text = input_text[1:] + next_char
+
+            num_generated_chars += 1
+
+    return generated_text
