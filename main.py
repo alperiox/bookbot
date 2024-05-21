@@ -18,6 +18,7 @@ parser.add_argument("--block_size", type=int, default=10, help="Block size")
 parser.add_argument("--batch_size", type=int, default=32, help="Batch size")
 parser.add_argument("--epochs", type=int, default=30, help="Number of epochs")
 parser.add_argument("--lr", type=float, default=0.001, help="Learning rate")
+parser.add_argument("--lrsche", action="store_true", help="Learning rate scheduler", default=True)
 parser.add_argument(
     "--generate", action="store_true", help="Generate text", default=False
 )
@@ -72,6 +73,7 @@ if __name__ == "__main__":
             test_loader,
             epochs=args["epochs"],
             learning_rate=args["lr"],
+            lrsche=args["lrsche"],
         )
         print("-" * 50)
         print("TRAINED THE MODEL!")

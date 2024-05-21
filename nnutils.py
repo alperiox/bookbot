@@ -20,7 +20,7 @@ def evaluate(model, x, y):
     return loss.item()
 
 
-def train_loop(model, train_loader, test_loader, epochs, learning_rate):
+def train_loop(model, train_loader, test_loader, epochs, learning_rate, lrsche):
     # a single training loop
     parameters = model.parameters()
     for p in parameters:
@@ -28,19 +28,24 @@ def train_loop(model, train_loader, test_loader, epochs, learning_rate):
 
     train_losses = torch.zeros(epochs)
     valid_losses = torch.zeros(epochs)
+    lr = learning_rate
     for epoch in range(epochs):
         bar = tqdm(enumerate(train_loader), total=len(train_loader))
+        if lrsche:
+            if epoch == int(epochs*.5):
+                lr = lr / 10
         print("========")
         print("TRAINING (epoch:%d/%d)" % (epoch + 1, epochs))
         for i, (x, y) in bar:
             outs = model(x)
             loss = F.cross_entropy(outs, y)
             loss.backward()
-            optimize_step(parameters, learning_rate)
+
+            optimize_step(parameters, lr)
             loss = loss.item()
 
             train_losses[epoch] += loss / len(train_loader)
-            desc_text = f"({epoch*train_loader.batch_size + i*train_loader.batch_size}/{len(train_loader.dataset)}): loss {train_losses[epoch]:.4f}"
+            desc_text = f"({epoch*train_loader.batch_size + i*train_loader.batch_size}/{len(train_loader.dataset)}) (lr={lr:.4f}): loss {train_losses[epoch]:.4f}"
             bar.set_description(desc_text)
 
         print("TESTING")
