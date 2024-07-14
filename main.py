@@ -4,7 +4,7 @@ import argparse
 import torch
 from pypdf import PdfReader
 
-from layers import Model
+from layers import HierarchicalModel, Model
 from nnutils import generate_text, train_loop
 from preprocessing import process_data
 
@@ -26,6 +26,15 @@ parser.add_argument(
 )
 parser.add_argument(
     "--n_chars", type=int, default=100, help="Number of characters to generate"
+)
+parser.add_argument(
+    "--model", type=str, default="h", help="(h)ierarchical or (m)lp model to train"
+)
+parser.add_argument(
+    "--n_consecutive", type=int, default=2, help="number of token to concatenate hierarchically (only used when the model is hierarchical)"
+)
+parser.add_argument(
+    "--n_layers", type=int, default=4, help="number of consecutive hidden layer blocks, blocks are different for each model and can be seen in `layers.py`."
 )
 parser.add_argument("--seedtext", type=str, help="Starting text for generation")
 args = parser.parse_args()
@@ -63,12 +72,23 @@ if __name__ == "__main__":
         train_loader, test_loader = process_data(
             text, block_size=args["block_size"], batch_size=args["batch_size"]
         )
-        model = Model(
-            vocab_size,
-            n_embed=args["n_embed"],
-            block_size=args["block_size"],
-            n_hidden=args["n_hidden"],
-        )
+        if args['model'] == "h":
+            model = HierarchicalModel(
+                vocab_size,
+                n_consecutive=args['n_consecutive'],
+                n_embed=args["n_embed"],
+                n_hidden=args['n_hidden'],
+                n_layers=args['n_layers'],
+                block_size=args['block_size']
+            )
+        elif args['model'] == "m":
+            model = Model(
+                vocab_size,
+                n_embed=args["n_embed"],
+                block_size=args["block_size"],
+                n_hidden=args["n_hidden"],
+                n_layers=args['n_layers']
+            )
         train_loop(
             model,
             train_loader,
