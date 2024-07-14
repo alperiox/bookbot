@@ -67,6 +67,9 @@ The generation will run until the generated character is the stop token ("|") or
 ## Further plans
 
 - [ ] Implement debugging tools to analyze the neural network's training performance. (more like useful graphs and statistics.)
+  - [ ] graphs to check out the layer outputs' distributions.
+  - [ ] graphs to check the gradient flow
+  - [ ] summary for the training
 - [ ] More modeling options such as LSTMs, RNNs, and Transformer-based architectures.
   - [ ] Wavenet?
   - [ ] GPT
