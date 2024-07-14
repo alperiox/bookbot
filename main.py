@@ -3,7 +3,7 @@ import argparse
 
 import torch
 
-from layers import HierarchicalModel, Model
+from models import HierarchicalModel, Model
 from nnutils import generate_text, train_loop
 from preprocessing import load_data, process_data
 
