@@ -47,37 +47,44 @@ class Embedding:
 
 
 class BatchNorm1d:
-    def __init__(self, n_in, eps=1e-5, momentum=0.1):
-        self.training = True
+    def __init__(self, dim, eps=1e-5, momentum=0.1):
         self.eps = eps
         self.momentum = momentum
-
-        self.gamma = torch.ones(n_in)
-        self.bias = torch.zeros(n_in)
-
-        self.mean = torch.zeros(n_in)
-        self.var = torch.ones(n_in)
+        self.training = True
+        # parameters to be trained with backprop
+        self.gamma = torch.ones(dim)
+        self.beta = torch.zeros(dim)
+        # buffers, trained with a running `momentum update`
+        self.running_mean = torch.zeros(dim)
+        self.running_var = torch.ones(dim)
 
     def __call__(self, x):
-        self.x = x  # (n_samples, n_in)
-
         if self.training:
-            mean = x.mean(dim=0)  #
-            var = x.var(dim=0)
-
-            self.mean = self.momentum * self.mean + (1 - self.momentum) * mean
-            self.var = self.momentum * self.var + (1 - self.momentum) * var
+            if x.ndim == 2:
+                dim = 0
+            elif x.ndim == 3:
+                dim = (0, 1)
+            xmean = x.mean(dim, keepdim=True)  # batch mean
+            xvar = x.var(dim, keepdim=True)
         else:
-            mean = self.mean
-            var = self.var
+            xmean = self.running_mean
+            xvar = self.running_var
 
-        self.x_hat = (x - mean) / torch.sqrt(var + self.eps)
-        self.out = self.gamma * self.x_hat + self.bias
-
+        xhat = (x - xmean) / torch.sqrt(xvar + self.eps)
+        self.out = self.gamma * xhat + self.beta
+        # update the buffers
+        if self.training:
+            with torch.no_grad():
+                self.running_mean = (
+                    self.running_mean * (1 - self.momentum) + xmean * self.momentum
+                )
+                self.running_var = (
+                    self.running_var * (1 - self.momentum) + xvar * self.momentum
+                )
         return self.out
 
     def parameters(self):
-        return [self.gamma, self.bias]
+        return [self.gamma, self.beta]
 
 
 class LinearBlock:
@@ -94,6 +101,81 @@ class LinearBlock:
 
     def parameters(self):
         return self.linear.parameters() + self.bn.parameters() + self.tanh.parameters()
+
+
+class Flatten:
+    def __call__(self, x: torch.tensor) -> torch.tensor:
+        self.out = x.view(x.size(0), -1)
+        return self.out
+
+    def parameters(self):
+        return []
+
+
+class FlattenConsecutive:
+    def __init__(self, n):
+        self.n = n  # sum n consecutive elements
+
+    def __call__(self, x):
+        B, T, C = x.shape
+        self.out = x.view(B, T // self.n, C * self.n)
+        if self.out.shape[1] == 1:
+            self.out = self.out.squeeze(1)
+        return self.out
+
+    def parameters(self):
+        return []
+
+
+class Sequential:
+    def __init__(self, layers):
+        self.layers = layers
+
+    def __call__(self, x):
+        self.out = x
+        for layer in self.layers:
+            self.out = layer(self.out)
+
+        return self.out
+
+    def parameters(self):
+        return [p for layer in self.layers for p in layer.parameters()]
+
+
+class HierarchicalModel:
+    def __init__(self, vocab_size, n_consecutive, n_embed, n_hidden, n_layers=3):
+        self.layers = [
+            Embedding(vocab_size, n_embed),
+        ]
+
+        for _ in n_layers:
+            layers = [
+                FlattenConsecutive(n_consecutive),
+                Linear(n_embed * n_consecutive, n_hidden, bias=False),
+                BatchNorm1d(n_hidden),
+                Tanh(),
+            ]
+            self.layers += layers
+
+        self.layers.append(Linear(n_hidden, vocab_size))
+
+        with torch.no_grad():
+            self.layers[-1].weight *= 0.1  # make the last layer less confident
+
+        self.model = Sequential(self.layers)
+
+    def __call__(self, x):
+        self.x = x
+        self.out = self.model(self.x)
+        return self.out
+
+    def eval(self):
+        for layer in self.layers:
+            if isinstance(layer, BatchNorm1d):
+                layer.training = False
+
+    def parameters(self):
+        return self.model.parameters()
 
 
 class Model:
