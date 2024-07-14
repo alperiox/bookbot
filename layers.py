@@ -145,7 +145,9 @@ class Sequential:
 
 
 class HierarchicalModel:
-    def __init__(self, vocab_size, n_consecutive, n_embed, n_hidden, block_size, n_layers=4):
+    def __init__(
+        self, vocab_size, n_consecutive, n_embed, n_hidden, block_size, n_layers=4
+    ):
         self.layers = [
             Embedding(vocab_size, n_embed),
             FlattenConsecutive(n_consecutive),
@@ -154,7 +156,7 @@ class HierarchicalModel:
             Tanh(),
         ]
 
-        for _ in range(n_layers-1):
+        for _ in range(n_layers - 1):
             layers = [
                 FlattenConsecutive(n_consecutive),
                 Linear(n_hidden * n_consecutive, n_hidden, bias=False),
