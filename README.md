@@ -1,10 +1,15 @@
 # bookbot
 
-a project that reads the given PDF file and uses a neural network to generate text that looks like from the book.
+a project that reads the given file and uses a neural network to generate text that looks like from the book.
 
-the built-in neural network is a MLP network that's built with pure pytorch (from scratch) along with batch normalization layer and Kaiming initialization.
+the built-in neural network is an MLP network that's built with pure Pytorch (from scratch) along with batch normalization layer and Kaiming initialization.
 
 Thanks to Andrej Karpathy for his great course on deep learning.
+
+Available file types as of the moment:
+
+- PDF
+- TXT
 
 ## Usage
 
@@ -63,8 +68,11 @@ The generation will run until the generated character is the stop token ("|") or
 
 - [ ] Implement debugging tools to analyze the neural network's training performance. (more like useful graphs and statistics.)
 - [ ] More modeling options such as LSTMs, RNNs, and Transformer-based architectures.
+  - [ ] Wavenet?
+  - [ ] GPT
+  - [ ] GPT-2
 - [ ] GPT tokenizer implementation to further improve the generation quality.
 
-## Contributing:
+## Contributing
 
 While I'm open to new feature ideas and stuff, please let me do the coding part since I'm trying to improve my overall understanding. Thus, I'd love to accept any feature requests as new PRs. You can reach me from Discord (@alperiox) or my e-mail address (<alper_balbay@hacettepe.edu.tr>)
