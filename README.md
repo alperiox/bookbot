@@ -31,6 +31,9 @@ Simply run the `main.py` by setting up the following arguments:
 - __n_embed__ (default: 15): embedding vector's dimension
 - __n_hidden__ (default: 400): hidden layer's dimensions (the hidden layers will be defined as n_hidden x n_hidden)
 - __block_size__ (default: 10): block size to set up the dataset, it's our context window in this project.
+- __model__ (default: h): hierarchical or mlp model to train. "h" for the hierarchical, "m" for the MLP.
+- __n_consecutive__ (default: 2): the amount of consecutive tokens to concatenate in the hierarchical model.
+- __n_layers__ (default: 4): number of processor blocks in the model, check out the models in `layers.py` for more information about its usage.
 - __batch_size__ (default: 32): batch size for the dataloaders.
 - __epochs__ (default: 10): number of epochs to train the model.
 - __lr__ (default: 0.001): learning rate to update the weights
