@@ -1,7 +1,20 @@
 import torch
 from torch.utils.data import DataLoader, TensorDataset
 
+from fileloaders import AVAILABLE_LOADERS
 from utils import save_artifacts
+
+
+def load_data(filepath: str) -> list:
+    file_ext = filepath.split(".")[-1].lower()
+    loader = AVAILABLE_LOADERS[
+        file_ext
+    ]  # huggingface's transformers module handles this kind of behavior quiet nicely, might need to take a look
+    text = loader(filepath)
+
+    vocab_size = len(set("".join(text).lower())) + 1  # plus one for the EOS token.
+
+    return text, vocab_size
 
 
 def process_data(input_text: str, block_size: int = 3, batch_size: int = 32):

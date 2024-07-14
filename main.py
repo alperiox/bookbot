@@ -2,16 +2,15 @@
 import argparse
 
 import torch
-from pypdf import PdfReader
 
 from layers import HierarchicalModel, Model
 from nnutils import generate_text, train_loop
-from preprocessing import process_data
+from preprocessing import load_data, process_data
 
 parser = argparse.ArgumentParser(
-    description="Train a neural net with given PDF generate text"
+    description="Train a neural net with given file to generate text"
 )
-parser.add_argument("--pdf", type=str, help="Path to the PDF file")
+parser.add_argument("--file", type=str, help="Path to the file")
 parser.add_argument("--n_embed", type=int, default=15, help="Embedding size")
 parser.add_argument("--n_hidden", type=int, default=400, help="Hidden size")
 parser.add_argument("--block_size", type=int, default=10, help="Block size")
@@ -31,10 +30,16 @@ parser.add_argument(
     "--model", type=str, default="h", help="(h)ierarchical or (m)lp model to train"
 )
 parser.add_argument(
-    "--n_consecutive", type=int, default=2, help="number of token to concatenate hierarchically (only used when the model is hierarchical)"
+    "--n_consecutive",
+    type=int,
+    default=2,
+    help="number of token to concatenate hierarchically (only used when the model is hierarchical)",
 )
 parser.add_argument(
-    "--n_layers", type=int, default=4, help="number of consecutive hidden layer blocks, blocks are different for each model and can be seen in `layers.py`."
+    "--n_layers",
+    type=int,
+    default=4,
+    help="number of consecutive hidden layer blocks, blocks are different for each model and can be seen in `layers.py`.",
 )
 parser.add_argument("--seedtext", type=str, help="Starting text for generation")
 args = parser.parse_args()
@@ -55,39 +60,31 @@ if __name__ == "__main__":
         )
         print(text)
     else:
-        # read the pdf file
-        reader = PdfReader(args["pdf"])
-        text = ""
-        for page in reader.pages:
-            t = page.extract_text()
-            text += t
-
-        with open(f"books/{args['pdf'].split('/')[-1]}.txt", "w") as f:
-            f.write(text)
-
+        # read the file
+        text_list, vocab_size = load_data(args["file"])
         # construct the dataset and get the vocabulary size
-        text = text.lower()
+        text = "".join(text_list).lower()
         vocab_size = len(set(text)) + 1
 
         train_loader, test_loader = process_data(
             text, block_size=args["block_size"], batch_size=args["batch_size"]
         )
-        if args['model'] == "h":
+        if args["model"] == "h":
             model = HierarchicalModel(
                 vocab_size,
-                n_consecutive=args['n_consecutive'],
+                n_consecutive=args["n_consecutive"],
                 n_embed=args["n_embed"],
-                n_hidden=args['n_hidden'],
-                n_layers=args['n_layers'],
-                block_size=args['block_size']
+                n_hidden=args["n_hidden"],
+                n_layers=args["n_layers"],
+                block_size=args["block_size"],
             )
-        elif args['model'] == "m":
+        elif args["model"] == "m":
             model = Model(
                 vocab_size,
                 n_embed=args["n_embed"],
                 block_size=args["block_size"],
                 n_hidden=args["n_hidden"],
-                n_layers=args['n_layers']
+                n_layers=args["n_layers"],
             )
         train_loop(
             model,
