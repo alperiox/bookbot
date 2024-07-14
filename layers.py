@@ -40,7 +40,9 @@ class Embedding:
         self.weight = torch.randn(n_vocab, n_embed)
 
     def __call__(self, x):
-        return self.weight[x]
+        self.x = x
+        self.out = self.weight[x]
+        return self.out
 
     def parameters(self):
         return [self.weight]
@@ -143,15 +145,19 @@ class Sequential:
 
 
 class HierarchicalModel:
-    def __init__(self, vocab_size, n_consecutive, n_embed, n_hidden, n_layers=3):
+    def __init__(self, vocab_size, n_consecutive, n_embed, n_hidden, block_size, n_layers=4):
         self.layers = [
             Embedding(vocab_size, n_embed),
+            FlattenConsecutive(n_consecutive),
+            Linear(n_embed * n_consecutive, n_hidden, bias=False),
+            BatchNorm1d(n_hidden),
+            Tanh(),
         ]
 
-        for _ in n_layers:
+        for _ in range(n_layers-1):
             layers = [
                 FlattenConsecutive(n_consecutive),
-                Linear(n_embed * n_consecutive, n_hidden, bias=False),
+                Linear(n_hidden * n_consecutive, n_hidden, bias=False),
                 BatchNorm1d(n_hidden),
                 Tanh(),
             ]
@@ -163,6 +169,7 @@ class HierarchicalModel:
             self.layers[-1].weight *= 0.1  # make the last layer less confident
 
         self.model = Sequential(self.layers)
+        self.block_size = block_size
 
     def __call__(self, x):
         self.x = x
