@@ -32,7 +32,7 @@ def train_loop(model, train_loader, test_loader, epochs, learning_rate, lrsche):
     for epoch in range(epochs):
         bar = tqdm(enumerate(train_loader), total=len(train_loader))
         if lrsche:
-            if epoch == int(epochs*.5):
+            if epoch == int(epochs * 0.5):
                 lr = lr / 10
         print("========")
         print("TRAINING (epoch:%d/%d)" % (epoch + 1, epochs))
