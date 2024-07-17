@@ -6,6 +6,15 @@ from pathlib import Path
 ### Template for the future tokenizers, all of them should follow this structure
 class Tokenizer(ABC):
     @abstractmethod
+    def __init__(self):
+        self.special_tokens = {
+            "<BEGIN>": 0,
+            "<END>": 1,
+        }
+        self.EOS_TOKEN = "<BEGIN>"
+        self.BOS_TOKEN = "<END>"
+
+    @abstractmethod
     def encode(self, text: list):
         pass
 
@@ -59,6 +68,8 @@ class CharTokenizer(Tokenizer):
             "<BEGIN>": 0,
             "<END>": 1,
         }
+        self.EOS_TOKEN = "<BEGIN>"
+        self.BOS_TOKEN = "<END>"
 
     def fit(self, source: list[str]) -> None:
         if isinstance(source, str):
