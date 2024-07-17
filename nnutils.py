@@ -66,7 +66,7 @@ def train_loop(model, train_loader, test_loader, epochs, learning_rate, lrsche):
     )
 
 
-def generate_text(seed_text, model=None, char_to_ix=None, ix_to_char=None, n_chars=100):
+def generate_text(seed_text, model=None, char_to_ix=None, ix_to_char=None, max_new_tokens=100):
     if not model:
         model = load_artifacts("model")["model"]
     if not char_to_ix:
@@ -84,7 +84,7 @@ def generate_text(seed_text, model=None, char_to_ix=None, ix_to_char=None, n_cha
         else:
             input_text = " " * (model.block_size - len(generated_text)) + generated_text
 
-        while num_generated_chars < n_chars and generated_text[-1] != "|":
+        while num_generated_chars < max_new_tokens and generated_text[-1] != "|":
             input_block = [char_to_ix[char] for char in input_text]
             input_tensor = torch.tensor(input_block, dtype=torch.long).unsqueeze(0)
             out = model(input_tensor)
