@@ -1,5 +1,6 @@
 import torch
 from torch.nn import functional as F
+
 from models import Sequential
 
 
@@ -67,6 +68,25 @@ class ReLU:
         return (x > 0) * x
 
 
+class DecoderTransformerBlock:
+    def __init__(self, n_head, n_hidden, context_length):
+        self.head_size = n_hidden // n_head
+        self.self_attn = MultiHeadAttention(
+            n_head, n_hidden, self.head_size, context_length
+        )
+        self.ffwd_net = FeedForwardBlock(n_hidden)
+        self.ln1 = LayerNorm(n_hidden)
+        self.ln2 = LayerNorm(n_hidden)
+
+    def __call__(self, x):
+        # plus the residual connections
+        x = x + self.self_attn(self.ln1(x))
+        x = x + self.ffwd_net(self.ln2(x))
+        self.out = x
+
+        return self.out
+
+
 class Linear:
     def __init__(self, n_in, n_out, bias=True):
         self.weight = torch.randn(n_in, n_out) / n_in**0.5
@@ -111,6 +131,25 @@ class Embedding:
 
     def parameters(self):
         return [self.weight]
+
+
+class LayerNorm:
+    def __init__(self, dim, eps=1e-5):
+        self.eps = eps
+        # parameters to be trained with backprop
+        self.gamma = torch.ones(dim)
+        self.beta = torch.zeros(dim)
+
+    def __call__(self, x):
+        xmean = x.mean(1, keepdim=True)  # layers mean
+        xvar = x.var(1, keepdim=True)  # layers var
+
+        xhat = (x - xmean) / torch.sqrt(xvar + self.eps)
+        self.out = self.gamma * xhat + self.beta
+        return self.out
+
+    def parameters(self):
+        return [self.gamma, self.beta]
 
 
 class BatchNorm1d:
