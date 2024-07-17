@@ -2,6 +2,49 @@ import torch
 from torch.nn import functional as F
 
 
+class Head:
+    """one head of self-attention"""
+
+    def __init__(self, n_in, n_head, context_length):
+        self.head_size = n_head
+        self.key = Linear(n_in, n_head, bias=False)  # (n_in, n_head)
+        self.query = Linear(n_in, n_head, bias=False)  # (n_in, n_head)
+        self.value = Linear(n_in, n_head, bias=False)  # (n_in, n_head)
+
+        self.tril = torch.tril(torch.ones(context_length, context_length))
+
+    def __call__(self, x):
+        B, T, C = x.shape
+
+        k = self.key(x)  # (B, T, hs)
+        q = self.query(x)  # (B, T, hs)
+        v = self.value(x)  # (B, T, hs)
+
+        wei = q @ k.transpose(-2, -1)  # (B, T, T)
+        wei = wei.masked_fill(self.tril[:T, :T] == 0, float("-inf"))  # why :T, :T (?)
+        wei = F.softmax(wei, dim=-1)  # (B,T,T)
+
+        self.out = wei @ v  # (B, T, hs)
+        return self.out
+
+
+class MultiHeadAttention:
+    """multi-head self-attention that'll be used in GPT implementation"""
+
+    def __init__(self, num_head, n_in, head_size, context_length):
+        self.head_size = head_size
+        self.num_head = num_head
+
+        self.heads = [Head(n_in, head_size, context_length)]
+        self.proj = Linear(n_in, head_size)
+
+    def __call__(self, x):
+        out = [h(x) for h in self.heads]  # list of (B, T, head_size)
+        self.out = torch.concat(out, -1)  # (B, T, head_size * num_heads)
+        self.out = self.proj(self.out)
+        return self.out
+
+
 class Linear:
     def __init__(self, n_in, n_out, bias=True):
         self.weight = torch.randn(n_in, n_out) / n_in**0.5
