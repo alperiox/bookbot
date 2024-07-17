@@ -16,7 +16,7 @@ class Sequential:
         return [p for layer in self.layers for p in layer.parameters()]
 
 
-class HierarchicalModel:
+class HierarchicalMLP:
     def __init__(
         self, vocab_size, n_consecutive, n_embed, n_hidden, block_size, n_layers=4
     ):
@@ -58,8 +58,12 @@ class HierarchicalModel:
     def parameters(self):
         return self.model.parameters()
 
+    def generate(self, idx, max_new_tokens):
+        # TODO
+        raise NotImplementedError("Not implemented yet.")
 
-class Model:
+
+class MLP:
     def __init__(self, vocab_size, block_size, n_embed, n_hidden, n_layers=4):
         self.layers = []
         self.vocab_size = vocab_size
@@ -96,3 +100,59 @@ class Model:
         return [self.embedding.weight] + [
             param for layer in self.layers for param in layer.parameters()
         ]
+
+    def generate(self, idx, max_new_tokens):
+        # TODO
+        raise NotImplementedError("Not implemented yet.")
+class GPT:
+    def __init__(self, n_embd, vocab_size, num_heads, num_blocks, block_size):
+        self.n_embd = n_embd
+        self.vocab_size = vocab_size
+        self.num_heads = num_heads
+        self.num_blocks = num_blocks
+        self.block_size = block_size
+
+        self.token_embeddings_table = Embedding(vocab_size, n_embd)
+        self.pos_embeddings_table = Embedding(block_size, n_embd)
+        self.blocks = Sequential([
+            DecoderTransformerBlock(num_heads, n_embd, context_length=block_size)
+            for _ in range(num_blocks)
+        ])
+        self.ln_f = LayerNorm()
+        self.ln_head = Linear(n_embd, vocab_size)
+
+    def __call__(self, idx, targets=None):
+        # inputs and targets are (B, T) shaped
+        B, T = idx.shape
+
+        tok_emb = self.token_embeddings_table(idx) # (B, T, n_embd)
+        pos_emb = self.pos_embeddings_table(torch.arange(T)) # (T, n_embd)
+        x = tok_emb + pos_emb # (B, T, n_embd)
+        x = self.blocks(x) # (B, T, n_embd)
+        x = self.ln_f(x) # (B, T, n_embd)
+        logits = self.ln_head(x) # (B, T, vocab_size)
+        
+        if targets is None:
+            loss = None
+        else:
+            logits = logits.view(B*T, -1)
+            targets = targets.view(B*T)
+            loss = F.cross_entropy(logits, targets)
+        
+        return logits, loss
+
+    def generate(self, idx, max_new_tokens):
+        # idx is (B, T) array where T is the context length
+        for _ in range(max_new_tokens):
+            # crop the idx so we'll stay in the dimensions of positional embedding table
+            cropped_idx = idx[:, -self.block_size:]
+            logits, loss = self(cropped_idx) # (B, T, C=vocab_size)
+            # pick the last context window to sample the next token
+            logits = logits[:, -1, :] # (B, C)
+            # apply softmax to map the logits to probs
+            probs = F.softmax(logits, -1)
+            # sample the next index
+            next_idx = torch.multinomial(probs, num_samples=1) # (B, 1)
+            idx = torch.concat([idx, next_idx], dim=-1) # (B, T+1)
+        
+        return idx
