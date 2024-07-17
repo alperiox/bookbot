@@ -1,5 +1,6 @@
 import torch
 from torch.nn import functional as F
+from models import Sequential
 
 
 class Head:
@@ -43,6 +44,27 @@ class MultiHeadAttention:
         self.out = torch.concat(out, -1)  # (B, T, head_size * num_heads)
         self.out = self.proj(self.out)
         return self.out
+
+
+class FeedForwardBlock:
+    def __init__(self, n_hidden):
+        self.net = Sequential(
+            [
+                # provide a larger dimensional space for network to process the connection between tokens
+                Linear(n_hidden, n_hidden * 4),
+                ReLU(),
+                Linear(n_hidden * 4, n_hidden),
+            ]
+        )
+
+    def __call__(self, x):
+        self.out = self.net(x)
+        return self.out
+
+
+class ReLU:
+    def __call__(self, x):
+        return (x > 0) * x
 
 
 class Linear:
