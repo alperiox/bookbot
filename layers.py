@@ -69,10 +69,10 @@ class ReLU:
 
 
 class DecoderTransformerBlock:
-    def __init__(self, n_head, n_hidden, context_length):
-        self.head_size = n_hidden // n_head
+    def __init__(self, num_heads, n_hidden, context_length):
+        self.head_size = n_hidden // num_heads
         self.self_attn = MultiHeadAttention(
-            n_head, n_hidden, self.head_size, context_length
+            num_heads, n_hidden, self.head_size, context_length
         )
         self.ffwd_net = FeedForwardBlock(n_hidden)
         self.ln1 = LayerNorm(n_hidden)
