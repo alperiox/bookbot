@@ -3,5 +3,7 @@ __pycache__
 .ruff_cache
 .venv
 artifacts
+datasets
 poetry.lock
 .*
+
