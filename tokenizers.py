@@ -89,9 +89,7 @@ class CharTokenizer(Tokenizer):
         # stoi: string -> ix
         # itos: ix -> string
         self.stoi = self.special_tokens.copy()
-        self.stoi.update(
-            {t: i for i, t in enumerate(tokens, len(self.special_tokens))}
-        )
+        self.stoi.update({t: i for i, t in enumerate(tokens, len(self.special_tokens))})
         self.itos = {i: t for t, i in self.stoi.items()}
 
         return
