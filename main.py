@@ -7,6 +7,7 @@ from net import GPT, MLP, HierarchicalMLP
 from utils import train_loop, save_artifacts, load_artifacts
 from processors import CharLevelMLPProcessor, GPTProcessor
 from tokenizers import CharTokenizer
+import os
 
 parser = argparse.ArgumentParser(
     description="Train a neural net with given file to generate text"
@@ -60,7 +61,6 @@ args = vars(args)
 if __name__ == "__main__":
     if args["generate"]:
         # we need to load the model and start generating text
-        import os
 
         # check if there's a pretrained model and tokenizer
         assert os.path.exists("artifacts/model.pt"), "Model not found"
@@ -111,8 +111,6 @@ if __name__ == "__main__":
                 tokenizer=tokenizer,
                 context_length=args["block_size"],
             )
-
-            pass
 
         # get the data loaders
         train_loader, test_loader = processor.get_dataloaders(
