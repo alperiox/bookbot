@@ -57,13 +57,7 @@ def train_loop(model, train_loader, test_loader, epochs, learning_rate, lrsche):
             desc_text = f"({epoch*test_loader.batch_size + i*test_loader.batch_size}/{len(test_loader.dataset)}): loss {valid_losses.sum()/(i+1):.4f}"
             bar.set_description(desc_text)
 
-    save_artifacts(
-        model=model,
-        train_losses=train_losses,
-        valid_losses=valid_losses,
-        train_loader=train_loader,
-        test_loader=test_loader,
-    )
+    return train_losses, valid_losses
 
 
 def generate_text(
