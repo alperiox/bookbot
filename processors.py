@@ -19,11 +19,12 @@ class DataProcessor(ABC):
         """
         paths (list): list of filepaths for the input files
         """
-        self.sources = paths
+        self.sources = paths if isinstance(paths, list) else [paths]
         self.tokenizer = tokenizer
 
-        for source in paths:
-            if ext := source.split(".")[-1] not in AVAILABLE_LOADERS:
+        for source in self.sources:
+            ext = source.split(".")[-1]
+            if ext not in AVAILABLE_LOADERS:
                 raise NotImplementedError(f"`{ext}` extension is not covered for the moment! please remove it from the provided sources.")
 
         self.load_data()
@@ -129,7 +130,7 @@ class CharLevelMLPProcessor(DataProcessor):
                 targets.append(target)
 
         blocks = torch.tensor(blocks, dtype=torch.long)
-        targets = torch.tensor(targets, dtype=torch.long)
+        targets = torch.tensor(targets, dtype=torch.long).view(-1)
 
         return blocks, targets
 
