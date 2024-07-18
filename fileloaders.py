@@ -10,11 +10,11 @@ def load_pdf(filepath: str) -> list[str]:
     with open(f"books/{filepath.split('/')[-1]}.txt", "w") as f:
         f.write(text)
 
-    return text.splitlines()
+    return text
 
 
 def load_txt(filepath: str) -> list[str]:
-    return open(filepath, "r").read().splitlines()
+    return open(filepath, "r").read()
 
 
 AVAILABLE_LOADERS = {"pdf": load_pdf, "txt": load_txt}
