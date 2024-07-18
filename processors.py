@@ -168,3 +168,67 @@ class CharLevelMLPProcessor(DataProcessor):
         test_loader = DataLoader(test_dataset, batch_size=batch_size, shuffle=False)
 
         return train_loader, test_loader
+
+class GPTProcessor(DataProcessor):
+
+    """Data processor for the character-level Hierarchical MLP and MLP models."""
+
+    def __init__(self, paths: list[str], tokenizer: Tokenizer, context_length: int):
+        """
+        paths (list): list of filepaths for the input files
+        tokenizer (Tokenizer): tokenizer to tokenize the raw data
+        context_length (int): context length (or the block size) to prepare the input data
+        """
+        super().__init__(paths, tokenizer)
+
+        self.context_length = context_length
+
+    def process_raw_data(self) -> tuple[torch.Tensor, torch.Tensor]:
+        data = torch.tensor(self.tokenizer.encode(self.raw_data)[0], dtype=torch.long)
+        X, Y = [], []
+
+
+        for i in range(data.size(0) - self.context_length): 
+            x = data[i : i + self.context_length]
+            y = data[i + 1 : i + self.context_length + 1]
+            X.append(x)
+            Y.append(y)
+        
+        X = torch.stack(X)
+        Y = torch.stack(Y)
+
+        return X, Y
+
+    def get_dataloaders(
+        self, batch_size, train_ratio=0.9, generator=torch.Generator().manual_seed(42)
+    ):
+        """
+        Given the batch size, training ratio and an optional generator object, returns the training and testing data loaders
+        """
+
+        # get the blocks and the targets
+        inputs, targets = (
+            self.process_raw_data()
+        )  # (n_samples, context_length), (n_samples, ) shaped tensors
+
+        # shuffle the data
+        random_indices = torch.randperm(inputs.size(0), generator=generator)
+        inputs = inputs[random_indices]
+        targets = targets[random_indices]
+
+        n_samples = inputs.size(0)
+        n_train = int(n_samples * train_ratio)
+
+        train_inputs = inputs[:n_train]
+        train_targets = targets[:n_train]
+
+        test_inputs = inputs[n_train:]
+        test_targets = targets[n_train:]
+
+        train_dataset = TensorDataset(train_inputs, train_targets)
+        test_dataset = TensorDataset(test_inputs, test_targets)
+
+        train_loader = DataLoader(train_dataset, batch_size=batch_size, shuffle=True)
+        test_loader = DataLoader(test_dataset, batch_size=batch_size, shuffle=False)
+
+        return train_loader, test_loader
