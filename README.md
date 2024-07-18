@@ -27,45 +27,48 @@ Then just install the `poetry` environment and move on to the next steps.
 
 Simply run the `main.py` by setting up the following arguments:
 
-- __pdf__: Path to the PDF file
+- __train_ratio__ (default: 0.8): ratio of the input data that will be used for the training
+- __file__: Path to the PDF/TXT file
 - __n_embed__ (default: 15): embedding vector's dimension
 - __n_hidden__ (default: 400): hidden layer's dimensions (the hidden layers will be defined as n_hidden x n_hidden)
 - __block_size__ (default: 10): block size to set up the dataset, it's our context window in this project.
-- __model__ (default: h): hierarchical or mlp model to train. "h" for the hierarchical, "m" for the MLP.
-- __n_consecutive__ (default: 2): the amount of consecutive tokens to concatenate in the hierarchical model.
-- __n_layers__ (default: 4): number of processor blocks in the model, check out the models in `layers.py` for more information about its usage.
-- __batch_size__ (default: 32): batch size for the dataloaders.
+- __batch_size__ (default: 32): the amount of samples that'll be processed in one go
 - __epochs__ (default: 10): number of epochs to train the model.
 - __lr__ (default: 0.001): learning rate to update the weights
 - __generate__ (default: False): to run the generation mode, it's required to generate text using the pre-trained model. So you should train a model first.
-- __n_chars__ (default: 100): number of characters to generate, if the generated character is the ending token, then the generation will finalize.
-- __seedtext__: the starting text for the generation, needs one to start generating.
+- __max_new_tokens__ (default: 100): the amount of tokens that will be generated if `generate` flag is active
+- __model__ (default: gpt): hierarchical mlp (hmlp), mlp model (mlp) or gpt (gpt) model to train.
+- __n_consecutive__ (default: 2): the amount of consecutive tokens to concatenate in the hierarchical model.
+- __n_layers__ (default: 4): number of processor blocks in the model, check out the models in `layers.py` for more information about its usage.
+- __num_heads__ (default: 3): number of self-attention heads in the multi-head self-attention layer in GPT implementation.
+- __num_blocks__ (default: 2): number of layer blocks given the model. Sequential linear blocks for MLP and Hierarchical MLP, DecoderTransformerBlocks for GPT.
+- __context__ (default: None, required if `generate`): the context for the text generation, please try to use a longer context than the `block_size`
 
 You can start the training using the script like in the following:
 
 ```bash
-python main.py --pdf=romeo-and-juliet.pdf --n_embed=20 --n_hidden=200 
+python main.py --file=romeo-and-juliet.pdf --n_embed=20 --n_hidden=200 
             \ --block_size=15 --batch_size=64 --epochs=20 --lr=0.01
 ```
 
 Or you can just start the training using the default arguments:
 
 ```bash
-python main.py --pdf=romeo-and-juliet.pdf
+python main.py --file=romeo-and-juliet.pdf
 ```
 
-The training will generate several artifacts and will save them in the `artifacts` directory. The saved artifacts include the model, the data loaders, calculated losses along the training, and finally `char_to_ix` and `ix_to_char` dictionaries to use the constructed character-level vocabulary.
+The training will generate several artifacts and will save them in the `artifacts` directory. The saved artifacts include the model, the data loaders, calculated losses along the training, and finally the tokenizer to use the constructed character-level vocabulary.
 
 ### How to generate new text?
 
 You can generate text __after training a model first.__ That's because the generation pipeline makes use of the saved artifacts. In order to start the generation, you need to pass the `generate` flag:
 
 ```bash
-python main.py --generate --seedtext="Juliet," --n_chars=100
+python main.py --generate --context="Juliet," --max_new_tokens=100
 >>> juliet, and have know lie thee why!
 ```
 
-The generation will run until the generated character is the stop token ("|") or the wanted character length is matched.
+The generation will run until the wanted character length is matched.
 
 ## Further plans
 
@@ -74,8 +77,8 @@ The generation will run until the generated character is the stop token ("|") or
   - [ ] graphs to check the gradient flow
   - [ ] summary for the training
 - [ ] More modeling options such as LSTMs, RNNs, and Transformer-based architectures.
-  - [ ] Wavenet?
-  - [ ] GPT
+  - [x] Wavenet? (implemented the hierarchical architecture)
+  - [x] GPT
   - [ ] GPT-2
 - [ ] GPT tokenizer implementation to further improve the generation quality.
 
