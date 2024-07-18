@@ -305,10 +305,16 @@ class HierarchicalMLP:
         self.model = Sequential(self.layers)
         self.block_size = block_size
 
-    def __call__(self, x):
+    def __call__(self, x, y=None):
         self.x = x
         self.out = self.model(self.x)
-        return self.out
+
+        if y is None:
+            loss = None
+        else:
+            loss = F.cross_entropy(self.out, y)
+
+        return self.out, loss
 
     def eval(self):
         for layer in self.layers:
@@ -337,7 +343,7 @@ class MLP:
 
         self.layers.append(Linear(n_hidden, vocab_size))
 
-    def __call__(self, x):
+    def __call__(self, x, y=None):
         self.x = x  # (B, T)
 
         x = self.embedding(x)
@@ -346,8 +352,13 @@ class MLP:
         for layer in self.layers:
             x = layer(x)
 
+        if y is None:
+            loss = None
+        else:
+            loss = F.cross_entropy(x, y)
+
         self.out = x
-        return self.out
+        return self.out, loss
 
     def eval(self):
         for layer in self.layers:
