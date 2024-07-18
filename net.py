@@ -244,6 +244,7 @@ class Sequential:
         self.out = x
         for layer in self.layers:
             self.out = layer(self.out)
+            # print(f"{layer.__class__.__name__:20s}:", self.out.shape)
 
         return self.out
 
@@ -255,6 +256,7 @@ class HierarchicalMLP:
     def __init__(
         self, vocab_size, n_consecutive, n_embed, n_hidden, block_size, n_layers=4
     ):
+        assert (2**n_layers == block_size), "`2^n_layers` must be equal to `block_size` because of `FlattenConsecutive`!"
         self.layers = [
             Embedding(vocab_size, n_embed),
             FlattenConsecutive(n_consecutive),
