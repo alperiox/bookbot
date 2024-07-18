@@ -31,6 +31,10 @@ class Head:
         self.out = wei @ v  # (B, T, hs)
         return self.out
 
+    def parameters(self):
+        return [*self.key.parameters(),
+                *self.query.parameters(),
+                *self.value.parameters()]
 
 class MultiHeadAttention:
     """multi-head self-attention that'll be used in GPT implementation"""
@@ -39,14 +43,20 @@ class MultiHeadAttention:
         self.head_size = head_size
         self.num_head = num_head
 
-        self.heads = [Head(n_in, head_size, context_length)]
-        self.proj = Linear(n_in, head_size)
+        self.heads = [Head(n_in, head_size, context_length) for _ in range(num_head)]
+        self.proj = Linear(n_in, n_in)
 
     def __call__(self, x):
         out = [h(x) for h in self.heads]  # list of (B, T, head_size)
         self.out = torch.concat(out, -1)  # (B, T, head_size * num_heads)
         self.out = self.proj(self.out)
         return self.out
+
+    def parameters(self):
+        params = []
+        for h in self.heads:
+            params.extend(h.parameters())
+        return params + self.proj.parameters()
 
 
 class FeedForwardBlock:
@@ -64,10 +74,14 @@ class FeedForwardBlock:
         self.out = self.net(x)
         return self.out
 
+    def parameters(self):
+        return self.net.parameters()
 
 class ReLU:
     def __call__(self, x):
         return (x > 0) * x
+
+    def parameters(self): return []
 
 
 class DecoderTransformerBlock:
@@ -87,6 +101,14 @@ class DecoderTransformerBlock:
         self.out = x
 
         return self.out
+
+    def parameters(self):
+        return [
+            *self.self_attn.parameters(),
+            *self.ffwd_net.parameters(),
+            *self.ln1.parameters(),
+            *self.ln2.parameters()
+        ]
 
 
 class Linear:
@@ -360,7 +382,7 @@ class GPT:
                 for _ in range(num_blocks)
             ]
         )
-        self.ln_f = LayerNorm()
+        self.ln_f = LayerNorm(n_embd)
         self.ln_head = Linear(n_embd, vocab_size)
 
     def __call__(self, idx, targets=None):
@@ -382,6 +404,15 @@ class GPT:
             loss = F.cross_entropy(logits, targets)
 
         return logits, loss
+
+    def parameters(self):
+        return [
+            *self.token_embeddings_table.parameters(),
+            *self.pos_embeddings_table.parameters(),
+            *self.blocks.parameters(),
+            *self.ln_f.parameters(),
+            *self.ln_head.parameters()
+        ]
 
     def generate(self, idx, max_new_tokens):
         # idx is (B, T) array where T is the context length
