@@ -3,9 +3,9 @@ import argparse
 
 import torch
 
-from net import MLP, HierarchicalMLP
+from net import MLP, HierarchicalMLP, GPT
 from nnutils import generate_text, train_loop
-from processors import CharLevelMLPProcessor
+from processors import CharLevelMLPProcessor, GPTProcessor
 from tokenizers import CharTokenizer
 
 parser = argparse.ArgumentParser(
@@ -20,7 +20,7 @@ parser.add_argument(
 parser.add_argument("--file", type=str, help="Path to the file")
 parser.add_argument("--n_embed", type=int, default=15, help="Embedding size")
 parser.add_argument("--n_hidden", type=int, default=400, help="Hidden size")
-parser.add_argument("--block_size", type=int, default=10, help="Block size")
+parser.add_argument("--block_size", type=int, default=16, help="Block size")
 parser.add_argument("--batch_size", type=int, default=32, help="Batch size")
 parser.add_argument("--epochs", type=int, default=30, help="Number of epochs")
 parser.add_argument("--lr", type=float, default=0.001, help="Learning rate")
@@ -51,6 +51,8 @@ parser.add_argument(
     default=4,
     help="number of consecutive hidden layer blocks, blocks are different for each model and can be seen in `layers.py`.",
 )
+parser.add_argument("--num_heads", type=int, default=3)
+parser.add_argument("--num_blocks", type=int, default=2)
 parser.add_argument("--seedtext", type=str, help="Starting text for generation")
 args = parser.parse_args()
 args = vars(args)
@@ -78,6 +80,18 @@ if __name__ == "__main__":
                 context_length=args["block_size"],
             )
         elif args["model"] == "gpt":
+            tokenizer = CharTokenizer()
+            # I didn't use these in my first implementation, maybe later.
+            tokenizer.BOS_TOKEN = "" 
+            tokenizer.EOS_TOKEN = ""  
+            tokenizer.special_tokens = {}
+
+            processor = GPTProcessor(
+                paths=args['file'],
+                tokenizer=tokenizer,
+                context_length=args['block_size']
+            )
+
             pass
 
         train_loader, test_loader = processor.get_dataloaders(
@@ -104,6 +118,17 @@ if __name__ == "__main__":
                 n_hidden=args["n_hidden"],
                 n_layers=args["n_layers"],
             )
+        elif args['model'] == "gpt":
+            model = GPT(
+                n_embd=args['n_embed'],
+                vocab_size=vocab_size,
+                num_heads=args['num_heads'],
+                num_blocks=args['num_blocks'],
+                block_size=args['block_size']
+            )
+
+        else:
+            raise NotImplementedError("Available models: MLP, HierarchicalMLP, GPT.")
 
         train_loop(
             model,
