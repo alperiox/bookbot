@@ -30,29 +30,12 @@ class DataProcessor(ABC):
         self.load_data()
 
     @abstractmethod
-    def load_data(self):
-        pass
-
-    @abstractmethod
     def process_raw_data(self):
         pass
 
     @abstractmethod
     def get_dataloaders(self):
         pass
-
-class CharLevelMLPProcessor(DataProcessor):
-    """ Data processor for the character-level Hierarchical MLP and MLP models. """
-    def __init__(self, paths: list[str], tokenizer: Tokenizer, context_length: int):
-        """
-        paths (list): list of filepaths for the input files
-        tokenizer (Tokenizer): tokenizer to tokenize the raw data
-        context_length (int): context length (or the block size) to prepare the input data
-        """
-        super().__init__(paths, tokenizer)
-
-        self.context_length = context_length
-
 
     def load_data(self):
         raw_data = ""
@@ -67,6 +50,19 @@ class CharLevelMLPProcessor(DataProcessor):
         self.tokenizer.fit(raw_data)
     
         return raw_data
+
+class CharLevelMLPProcessor(DataProcessor):
+    """ Data processor for the character-level Hierarchical MLP and MLP models. """
+    def __init__(self, paths: list[str], tokenizer: Tokenizer, context_length: int):
+        """
+        paths (list): list of filepaths for the input files
+        tokenizer (Tokenizer): tokenizer to tokenize the raw data
+        context_length (int): context length (or the block size) to prepare the input data
+        """
+        super().__init__(paths, tokenizer)
+
+        self.context_length = context_length
+
 
     def process_raw_data(self) -> tuple[torch.Tensor, torch.Tensor]:
         """
