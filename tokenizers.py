@@ -58,18 +58,17 @@ class Tokenizer(ABC):
 class CharTokenizer(Tokenizer):
     """
     A simple character-level tokenizer, simply maps unique character to an integer
-    the first three tokens are reserved for the following:
-    0: <BEGIN>
-    1: <END>
+    the first two tokens are reserved for the following EOS and BOS tokens:
+    0: |
+    1: |
     """
 
     def __init__(self):
         self.special_tokens = {
-            "<BEGIN>": 0,
-            "<END>": 1,
+            "|": 0,
         }
-        self.EOS_TOKEN = "<BEGIN>"
-        self.BOS_TOKEN = "<END>"
+        self.EOS_TOKEN = "|"
+        self.BOS_TOKEN = "|"
 
     def fit(self, source: list[str]) -> None:
         if isinstance(source, str):
@@ -103,10 +102,7 @@ class CharTokenizer(Tokenizer):
         for text in texts:
             # map every character to the corresponding token
             text_tokens = map(
-                lambda c: self.stoi[c]
-                if c in self.vocabulary
-                else self.special_tokens["<UNK>"],
-                text,
+                lambda c: self.stoi[c], text
             )
             # convert the generator to list, it will make it yield every result
             # so we will have all the tokens in the end
