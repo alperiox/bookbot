@@ -4,10 +4,9 @@ import argparse
 import torch
 
 from net import GPT, MLP, HierarchicalMLP
-from nnutils import train_loop
+from utils import train_loop, save_artifacts, load_artifacts
 from processors import CharLevelMLPProcessor, GPTProcessor
 from tokenizers import CharTokenizer
-from utils import save_artifacts
 
 parser = argparse.ArgumentParser(
     description="Train a neural net with given file to generate text"
@@ -37,7 +36,7 @@ parser.add_argument(
 parser.add_argument(
     "--model",
     type=str,
-    default="hmlp",
+    default="gpt",
     help="(hmlp) hierarchical, (mlp) mlp, or (gpt) GPT model to train",
 )
 parser.add_argument(
@@ -67,8 +66,8 @@ if __name__ == "__main__":
         assert os.path.exists("artifacts/model.pt"), "Model not found"
         assert os.path.exists("artifacts/tokenizer.pt"), "Tokenizer not found"
         # load the model and the tokenizer
-        model = torch.load("artifacts/model.pt")
-        tokenizer = torch.load("artifacts/tokenizer.pt")
+        model = load_artifacts("artifacts/model.pt")
+        tokenizer = load_artifacts("artifacts/tokenizer.pt")
         # tokenize the context
         context = tokenizer.encode(args["context"])
         context = torch.tensor(context, dtype=torch.long)
