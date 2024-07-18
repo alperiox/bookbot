@@ -60,15 +60,17 @@ class CharTokenizer(Tokenizer):
     A simple character-level tokenizer, simply maps unique character to an integer
     the first two tokens are reserved for the following EOS and BOS tokens:
     0: |
-    1: |
     """
 
     def __init__(self):
         self.special_tokens = {
             "|": 0,
         }
-        self.EOS_TOKEN = "|"
-        self.BOS_TOKEN = "|"
+        self.special_token_mappings = {
+            "EOS_TOKEN": "|",
+            "BOS_TOKEN": "|",
+        }
+        self.__dict__.update(self.special_token_mappings)
 
     def fit(self, source: list[str]) -> None:
         if isinstance(source, str):
