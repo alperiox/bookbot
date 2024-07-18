@@ -25,7 +25,8 @@ class Head:
         v = self.value(x)  # (B, T, hs)
 
         wei = q @ k.transpose(-2, -1)  # (B, T, T)
-        wei = wei.masked_fill(self.tril[:T, :T] == 0, float("-inf"))  # why :T, :T (?)
+        # we might want to work with shorted sequences rather than defined context length, hence `self.tril[:T, :T]`.
+        wei = wei.masked_fill(self.tril[:T, :T] == 0, float("-inf"))
         wei = F.softmax(wei, dim=-1)  # (B,T,T)
 
         self.out = wei @ v  # (B, T, hs)
@@ -280,6 +281,8 @@ class HierarchicalMLP:
         assert (
             2**n_layers == block_size
         ), "`2^n_layers` must be equal to `block_size` because of `FlattenConsecutive`!"
+        
+        self.special_tokens = {}
         self.layers = [
             Embedding(vocab_size, n_embed),
             FlattenConsecutive(n_consecutive),
@@ -315,18 +318,40 @@ class HierarchicalMLP:
             loss = F.cross_entropy(self.out, y)
 
         return self.out, loss
+    
+    def add_special_token(self, key, val):
+        self.special_tokens[key] = val
 
     def eval(self):
         for layer in self.layers:
             if isinstance(layer, BatchNorm1d):
                 layer.training = False
+            
+    def train(self):
+        for layer in self.layers:
+            if isinstance(layer, BatchNorm1d):
+                layer.training = True
 
     def parameters(self):
         return self.model.parameters()
 
     def generate(self, idx, max_new_tokens):
-        # TODO
-        pass
+        if idx.shape[0] != 1:
+            raise NotImplementedError("batched generation is not supported at the moment.")
+        self.eval()
+        for _ in range(max_new_tokens):
+            input_tensor = idx[:, -self.block_size:]
+            out, loss = self(input_tensor)
+            probs = F.softmax(out, dim=-1)
+            # sample the next character
+            next_ix = torch.multinomial(probs, 1) # (1, 1)
+
+            # if next_ix[0] == self.special_tokens.get("EOS_TOKEN", None):
+            #     break
+            
+            idx = torch.concat([idx, next_ix], -1) # (B, block_size+1)
+        self.train()
+        return idx
 
 
 class MLP:
@@ -334,6 +359,7 @@ class MLP:
         self.layers = []
         self.vocab_size = vocab_size
         self.block_size = block_size
+        self.special_tokens = {}
 
         self.embedding = Embedding(vocab_size, n_embed)
 
@@ -359,6 +385,9 @@ class MLP:
 
         self.out = x
         return self.out, loss
+    
+    def add_special_token(self, key, val):
+        self.special_tokens[key] = val
 
     def eval(self):
         for layer in self.layers:
@@ -373,8 +402,22 @@ class MLP:
         ]
 
     def generate(self, idx, max_new_tokens):
-        # TODO
-        pass
+        if idx.shape[0] != 1:
+            raise NotImplementedError("batched generation is not supported at the moment.")
+
+        for _ in range(max_new_tokens):
+            input_tensor = idx[:, -self.block_size:]
+            out, loss = self(input_tensor)
+            probs = F.softmax(out, dim=1)
+            # sample the next character
+            next_ix = torch.multinomial(probs, 1).item() # (1, 1)
+
+            if next_ix[0] == self.special_tokens.get("EOS_TOKEN", None):
+                break
+            
+            idx = torch.concat([idx, next_ix], -1) # (B, block_size+1)
+
+        return idx
 
 
 class GPT:
