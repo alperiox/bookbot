@@ -37,24 +37,24 @@ def train_loop(model, train_loader, test_loader, epochs, learning_rate, lrsche):
         print("========")
         print("TRAINING (epoch:%d/%d)" % (epoch + 1, epochs))
         for i, (x, y) in bar:
-            outs = model(x)
-            loss = F.cross_entropy(outs, y)
-            loss.backward()
+            logits, loss = model(x, y)
 
+            loss.backward()
             optimize_step(parameters, lr)
             loss = loss.item()
 
-            train_losses[epoch] += loss / len(train_loader)
-            desc_text = f"({epoch*train_loader.batch_size + i*train_loader.batch_size}/{len(train_loader.dataset)}) (lr={lr:.4f}): loss {train_losses[epoch]:.4f}"
+            train_losses[epoch] += loss
+            desc_text = f"({epoch*train_loader.batch_size + i*train_loader.batch_size}/{len(train_loader.dataset)}) (lr={lr:.4f}): loss {train_losses.sum()/(i+1):.4f}"
             bar.set_description(desc_text)
 
         print("TESTING")
         bar = tqdm(enumerate(test_loader), total=len(test_loader))
         for i, (x, y) in bar:
-            loss = evaluate(model, x, y)
+            with torch.no_grad():
+                logits, loss = model(x, y)
 
-            valid_losses[epoch] += loss / len(test_loader)
-            desc_text = f"({epoch*test_loader.batch_size + i*test_loader.batch_size}/{len(test_loader.dataset)}): loss {valid_losses[epoch]:.4f}"
+            valid_losses[epoch] += loss
+            desc_text = f"({epoch*test_loader.batch_size + i*test_loader.batch_size}/{len(test_loader.dataset)}): loss {valid_losses.sum()/(i+1):.4f}"
             bar.set_description(desc_text)
 
     save_artifacts(
