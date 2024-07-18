@@ -169,8 +169,8 @@ class CharLevelMLPProcessor(DataProcessor):
 
         return train_loader, test_loader
 
-class GPTProcessor(DataProcessor):
 
+class GPTProcessor(DataProcessor):
     """Data processor for the character-level Hierarchical MLP and MLP models."""
 
     def __init__(self, paths: list[str], tokenizer: Tokenizer, context_length: int):
@@ -187,13 +187,12 @@ class GPTProcessor(DataProcessor):
         data = torch.tensor(self.tokenizer.encode(self.raw_data)[0], dtype=torch.long)
         X, Y = [], []
 
-
-        for i in range(data.size(0) - self.context_length): 
+        for i in range(data.size(0) - self.context_length):
             x = data[i : i + self.context_length]
             y = data[i + 1 : i + self.context_length + 1]
             X.append(x)
             Y.append(y)
-        
+
         X = torch.stack(X)
         Y = torch.stack(Y)
 
