@@ -3,7 +3,7 @@ import argparse
 
 import torch
 
-from net import HierarchicalMLP, MLP
+from net import MLP, HierarchicalMLP
 from nnutils import generate_text, train_loop
 from processors import CharLevelMLPProcessor
 from tokenizers import CharTokenizer
@@ -11,7 +11,12 @@ from tokenizers import CharTokenizer
 parser = argparse.ArgumentParser(
     description="Train a neural net with given file to generate text"
 )
-parser.add_argument("--train_ratio", type=float, default=0.8, help="ratio of the input data that will be used for the training")
+parser.add_argument(
+    "--train_ratio",
+    type=float,
+    default=0.8,
+    help="ratio of the input data that will be used for the training",
+)
 parser.add_argument("--file", type=str, help="Path to the file")
 parser.add_argument("--n_embed", type=int, default=15, help="Embedding size")
 parser.add_argument("--n_hidden", type=int, default=400, help="Hidden size")
@@ -29,7 +34,10 @@ parser.add_argument(
     "--n_chars", type=int, default=100, help="Number of characters to generate"
 )
 parser.add_argument(
-    "--model", type=str, default="hmlp", help="(hmlp) hierarchical, (mlp) mlp, or (gpt) GPT model to train"
+    "--model",
+    type=str,
+    default="hmlp",
+    help="(hmlp) hierarchical, (mlp) mlp, or (gpt) GPT model to train",
 )
 parser.add_argument(
     "--n_consecutive",
@@ -62,18 +70,20 @@ if __name__ == "__main__":
         )
         print(text)
     else:
-        if args['model'] in ["hmlp", "mlp"]:
+        if args["model"] in ["hmlp", "mlp"]:
             tokenizer = CharTokenizer()
             processor = CharLevelMLPProcessor(
-                paths=args['file'],
+                paths=args["file"],
                 tokenizer=tokenizer,
-                context_length=args['block_size'])
-        elif args['model'] == "gpt":
+                context_length=args["block_size"],
+            )
+        elif args["model"] == "gpt":
             pass
 
-        train_loader, test_loader = processor.get_dataloaders(args['batch_size'],
-                                                              args['train_ratio'])
-        
+        train_loader, test_loader = processor.get_dataloaders(
+            args["batch_size"], args["train_ratio"]
+        )
+
         vocab_size = tokenizer.vocab_size + 1
         print("vocab_size:", vocab_size)
 

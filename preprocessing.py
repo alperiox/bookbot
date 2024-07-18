@@ -6,27 +6,29 @@ from utils import save_artifacts
 
 
 def load_data(filepath: str) -> list:
-    """ takes in the filepath and loads the data using corresponding loader
+    """takes in the filepath and loads the data using corresponding loader
 
     currently supports the following file types:
     - pdf
-    - txt 
+    - txt
 
-     """
+    """
     file_ext = filepath.split(".")[-1].lower()
     loader = AVAILABLE_LOADERS[
         file_ext
     ]  # huggingface's transformers module handles this kind of behavior quiet nicely, might need to take a look
     text = loader(filepath)
 
-    vocab_size = len(set("".join(text).lower())) + 2  # plus one for the beginning and ending token.
+    vocab_size = (
+        len(set("".join(text).lower())) + 2
+    )  # plus one for the beginning and ending token.
 
     return text, vocab_size
 
 
 def process_data(input_text: str, block_size: int = 3, batch_size: int = 32):
     """
-    given the input text, context length and the batch size, 
+    given the input text, context length and the batch size,
     returns train and test loaders, saving the vocabulary along the way
     """
     char_to_ix, ix_to_char = prepare_vocabulary(input_text)
@@ -57,15 +59,15 @@ def prepare_vocabulary(input_text: str):
 
 
 def get_paragraphs(input_text: str):
-    """ returns the individual paragraphs in the given markdown/pdf text. """
+    """returns the individual paragraphs in the given markdown/pdf text."""
     paragraphs = input_text.split("\n")
     paragraphs = list(filter(lambda x: len(x) > 0, paragraphs))
     return paragraphs
 
 
 def setup_blocks(paragraphs, char_to_ix, block_size):
-    """ 
-    returns the input blocks along with targets using given paragraphs. 
+    """
+    returns the input blocks along with targets using given paragraphs.
     """
     blocks = []
     targets = []
@@ -91,7 +93,7 @@ def prepare_dataloaders(
     split_ratio=0.2,
     generator=torch.Generator().manual_seed(42),
 ):
-    """ returns the data loaders for training and testing phase given blocks, targets and batch_size. """
+    """returns the data loaders for training and testing phase given blocks, targets and batch_size."""
     # now we'll need to convert the singular samples to tensors, and then to batches
     inputs = torch.tensor(blocks, dtype=torch.long)
     targets = torch.tensor(targets, dtype=torch.long)

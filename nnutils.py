@@ -66,7 +66,9 @@ def train_loop(model, train_loader, test_loader, epochs, learning_rate, lrsche):
     )
 
 
-def generate_text(seed_text, model=None, char_to_ix=None, ix_to_char=None, max_new_tokens=100):
+def generate_text(
+    seed_text, model=None, char_to_ix=None, ix_to_char=None, max_new_tokens=100
+):
     if not model:
         model = load_artifacts("model")["model"]
     if not char_to_ix:

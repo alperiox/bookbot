@@ -1,9 +1,11 @@
 from abc import ABC, abstractmethod
 
 import torch
+from torch.utils.data import DataLoader, TensorDataset
+
 from fileloaders import AVAILABLE_LOADERS
 from tokenizers import Tokenizer
-from torch.utils.data import DataLoader, TensorDataset
+
 
 class DataProcessor(ABC):
     """
@@ -25,7 +27,9 @@ class DataProcessor(ABC):
         for source in self.sources:
             ext = source.split(".")[-1]
             if ext not in AVAILABLE_LOADERS:
-                raise NotImplementedError(f"`{ext}` extension is not covered for the moment! please remove it from the provided sources.")
+                raise NotImplementedError(
+                    f"`{ext}` extension is not covered for the moment! please remove it from the provided sources."
+                )
 
         self.load_data()
 
@@ -44,15 +48,17 @@ class DataProcessor(ABC):
             loader = AVAILABLE_LOADERS[ext]
             data = loader(filepath)
             raw_data += data
-        
+
         self.raw_data = raw_data
 
         self.tokenizer.fit(raw_data)
-    
+
         return raw_data
 
+
 class CharLevelMLPProcessor(DataProcessor):
-    """ Data processor for the character-level Hierarchical MLP and MLP models. """
+    """Data processor for the character-level Hierarchical MLP and MLP models."""
+
     def __init__(self, paths: list[str], tokenizer: Tokenizer, context_length: int):
         """
         paths (list): list of filepaths for the input files
@@ -63,7 +69,6 @@ class CharLevelMLPProcessor(DataProcessor):
 
         self.context_length = context_length
 
-
     def process_raw_data(self) -> tuple[torch.Tensor, torch.Tensor]:
         """
         1- Splits the raw data into paragraphs
@@ -71,12 +76,12 @@ class CharLevelMLPProcessor(DataProcessor):
         3- Sets up the blocks and the targets using the defined context length
           and tokenizer
         4- The blocks and targets are returned as `torch.long` tensors.
-        
-        For each paragraph, the beginning and the ending token from the tokenizer is 
-        added to the text. 
-        
+
+        For each paragraph, the beginning and the ending token from the tokenizer is
+        added to the text.
+
         To put it simply, we use a sliding window of length `context_length` to slide
-        through the paragraph. 
+        through the paragraph.
         Each context window is a training sample whereas the `context_length+1`th character
         is the target.
 
@@ -85,18 +90,18 @@ class CharLevelMLPProcessor(DataProcessor):
         context_length = 3
 
         input paragraph = "Hello there!"
-        
+
         length of the paragraph = 12
-        
+
         there will be 12-3=9 iterations:
-        
+
         1: block = "Hel", target = "l"
-        
+
         so "Hello there!"
             ---+
-        
+
         2: block = "ell", target = "o""
-        
+
         so "Hello there!"
              ---+
         ...
@@ -118,7 +123,7 @@ class CharLevelMLPProcessor(DataProcessor):
                 block = p[i : i + self.context_length]
                 target = p[i + self.context_length]
                 # block is just a piece of string, so the tokenizer will do the following
-                # transformation: string -> [encoded_string] 
+                # transformation: string -> [encoded_string]
                 # therefore we will take the first index since it returns a list
                 block = self.tokenizer.encode(block)[0]
                 target = self.tokenizer.encode(target)[0]
@@ -130,13 +135,17 @@ class CharLevelMLPProcessor(DataProcessor):
 
         return blocks, targets
 
-    def get_dataloaders(self, batch_size, train_ratio=0.8, generator=torch.Generator().manual_seed(42)):
-        """ 
+    def get_dataloaders(
+        self, batch_size, train_ratio=0.8, generator=torch.Generator().manual_seed(42)
+    ):
+        """
         Given the batch size, training ratio and an optional generator object, returns the training and testing data loaders
         """
 
         # get the blocks and the targets
-        inputs, targets = self.process_raw_data() # (n_samples, context_length), (n_samples, ) shaped tensors
+        inputs, targets = (
+            self.process_raw_data()
+        )  # (n_samples, context_length), (n_samples, ) shaped tensors
 
         # shuffle the data
         random_indices = torch.randperm(inputs.size(0), generator=generator)

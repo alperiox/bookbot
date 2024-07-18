@@ -101,9 +101,7 @@ class CharTokenizer(Tokenizer):
         tokens = []
         for text in texts:
             # map every character to the corresponding token
-            text_tokens = map(
-                lambda c: self.stoi[c], text
-            )
+            text_tokens = map(lambda c: self.stoi[c], text)
             # convert the generator to list, it will make it yield every result
             # so we will have all the tokens in the end
             text_tokens = list(text_tokens)
