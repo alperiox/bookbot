@@ -10,32 +10,48 @@ class Head:
     """one head of self-attention"""
 
     def __init__(self, n_in, n_head, context_length):
+        # the head size that'll be used to map the
+        # tokens to n_head-dimensional space, without additional bias.
         self.head_size = n_head
+        # define the key, query and value transformations
+        # these will be used to set up the affinity calculation between tokens.
         self.key = Linear(n_in, n_head, bias=False)  # (n_in, n_head)
         self.query = Linear(n_in, n_head, bias=False)  # (n_in, n_head)
+        # this will be used to represent the tokens in a higher dimensional space
+        # which will let model to learn more concise token representations (my take)
         self.value = Linear(n_in, n_head, bias=False)  # (n_in, n_head)
-
+        # lower triangle matrix to just aggregate the previous context
+        # as we try to predict the next token.
         self.tril = torch.tril(torch.ones(context_length, context_length))
 
     def __call__(self, x):
         B, T, C = x.shape
-
+        # every token will have a key, query and value vector
+        # we will then calculate the dot products of all the keys and queries
+        # the higher value will mean that there's a higher affinity between those
+        # two tokens.
         k = self.key(x)  # (B, T, hs)
         q = self.query(x)  # (B, T, hs)
         v = self.value(x)  # (B, T, hs)
-
-        wei = q @ k.transpose(-2, -1)  # (B, T, T)
+        # experimentally, one can check the dot products will
+        # have the same variance around the value of head_size
+        # thus scaling it down will help us preserve output variance
+        wei = (q @ k.transpose(-2, -1)) * (self.head_size**-0.5)  # (B, T, T)
         # we might want to work with shorted sequences rather than defined context length, hence `self.tril[:T, :T]`.
         wei = wei.masked_fill(self.tril[:T, :T] == 0, float("-inf"))
+        # get the normalized affinities
         wei = F.softmax(wei, dim=-1)  # (B,T,T)
-
+        # use the value vector and aggregate the results
         self.out = wei @ v  # (B, T, hs)
         return self.out
 
     def parameters(self):
-        return [*self.key.parameters(),
-                *self.query.parameters(),
-                *self.value.parameters()]
+        return [
+            *self.key.parameters(),
+            *self.query.parameters(),
+            *self.value.parameters(),
+        ]
+
 
 class MultiHeadAttention:
     """multi-head self-attention that'll be used in GPT implementation"""
@@ -43,13 +59,18 @@ class MultiHeadAttention:
     def __init__(self, num_head, n_in, head_size, context_length):
         self.head_size = head_size
         self.num_head = num_head
-
+        # set up the multiple heads
         self.heads = [Head(n_in, head_size, context_length) for _ in range(num_head)]
+        # add the projection transformation to connect the outputs to the
+        # residual pathway again
         self.proj = Linear(n_in, n_in)
 
     def __call__(self, x):
+        # calculate the outputs of the heads
         out = [h(x) for h in self.heads]  # list of (B, T, head_size)
+        # just concatenate them all
         self.out = torch.concat(out, -1)  # (B, T, head_size * num_heads)
+        # apply the projection transformation
         self.out = self.proj(self.out)
         return self.out
 
@@ -62,6 +83,8 @@ class MultiHeadAttention:
 
 class FeedForwardBlock:
     def __init__(self, n_hidden):
+        # a simple feed-forward network at the end of the
+        # decoder transformer architecture
         self.net = Sequential(
             [
                 # provide a larger dimensional space for network to process the connection between tokens
@@ -78,15 +101,22 @@ class FeedForwardBlock:
     def parameters(self):
         return self.net.parameters()
 
+
 class ReLU:
     def __call__(self, x):
         return (x > 0) * x
 
-    def parameters(self): return []
+    def parameters(self):
+        return []
 
 
 class DecoderTransformerBlock:
     def __init__(self, num_heads, n_hidden, context_length):
+        # using multiple heads will let us to provide more
+        # communication channels between the tokens
+        # but there's a caveat, the implementation downscales
+        # the attention layers' dimensions, resulting in
+        # more condensed communication channels.
         self.head_size = n_hidden // num_heads
         self.self_attn = MultiHeadAttention(
             num_heads, n_hidden, self.head_size, context_length
@@ -96,7 +126,8 @@ class DecoderTransformerBlock:
         self.ln2 = LayerNorm(n_hidden)
 
     def __call__(self, x):
-        # plus the residual connections
+        # add the residual connections and normalize given inputs
+        # just as in the paper.
         x = x + self.self_attn(self.ln1(x))
         x = x + self.ffwd_net(self.ln2(x))
         self.out = x
@@ -108,7 +139,7 @@ class DecoderTransformerBlock:
             *self.self_attn.parameters(),
             *self.ffwd_net.parameters(),
             *self.ln1.parameters(),
-            *self.ln2.parameters()
+            *self.ln2.parameters(),
         ]
 
 
@@ -281,7 +312,7 @@ class HierarchicalMLP:
         assert (
             2**n_layers == block_size
         ), "`2^n_layers` must be equal to `block_size` because of `FlattenConsecutive`!"
-        
+
         self.special_tokens = {}
         self.layers = [
             Embedding(vocab_size, n_embed),
@@ -318,7 +349,7 @@ class HierarchicalMLP:
             loss = F.cross_entropy(self.out, y)
 
         return self.out, loss
-    
+
     def add_special_token(self, key, val):
         self.special_tokens[key] = val
 
@@ -326,7 +357,7 @@ class HierarchicalMLP:
         for layer in self.layers:
             if isinstance(layer, BatchNorm1d):
                 layer.training = False
-            
+
     def train(self):
         for layer in self.layers:
             if isinstance(layer, BatchNorm1d):
@@ -337,19 +368,21 @@ class HierarchicalMLP:
 
     def generate(self, idx, max_new_tokens):
         if idx.shape[0] != 1:
-            raise NotImplementedError("batched generation is not supported at the moment.")
+            raise NotImplementedError(
+                "batched generation is not supported at the moment."
+            )
         self.eval()
         for _ in range(max_new_tokens):
-            input_tensor = idx[:, -self.block_size:]
+            input_tensor = idx[:, -self.block_size :]
             out, loss = self(input_tensor)
             probs = F.softmax(out, dim=-1)
             # sample the next character
-            next_ix = torch.multinomial(probs, 1) # (1, 1)
+            next_ix = torch.multinomial(probs, 1)  # (1, 1)
 
             # if next_ix[0] == self.special_tokens.get("EOS_TOKEN", None):
             #     break
-            
-            idx = torch.concat([idx, next_ix], -1) # (B, block_size+1)
+
+            idx = torch.concat([idx, next_ix], -1)  # (B, block_size+1)
         self.train()
         return idx
 
@@ -385,7 +418,7 @@ class MLP:
 
         self.out = x
         return self.out, loss
-    
+
     def add_special_token(self, key, val):
         self.special_tokens[key] = val
 
@@ -396,6 +429,13 @@ class MLP:
             elif isinstance(layer, LinearBlock):
                 layer.bn.training = False
 
+    def train(self):
+        for layer in self.layers:
+            if isinstance(layer, BatchNorm1d):
+                layer.training = True
+            elif isinstance(layer, LinearBlock):
+                layer.bn.training = True
+
     def parameters(self):
         return [self.embedding.weight] + [
             param for layer in self.layers for param in layer.parameters()
@@ -403,20 +443,22 @@ class MLP:
 
     def generate(self, idx, max_new_tokens):
         if idx.shape[0] != 1:
-            raise NotImplementedError("batched generation is not supported at the moment.")
-
+            raise NotImplementedError(
+                "batched generation is not supported at the moment."
+            )
+        self.eval()
         for _ in range(max_new_tokens):
-            input_tensor = idx[:, -self.block_size:]
+            input_tensor = idx[:, -self.block_size :]
             out, loss = self(input_tensor)
-            probs = F.softmax(out, dim=1)
+            probs = F.softmax(out, dim=-1)
             # sample the next character
-            next_ix = torch.multinomial(probs, 1).item() # (1, 1)
+            next_ix = torch.multinomial(probs, 1)  # (1, 1)
 
-            if next_ix[0] == self.special_tokens.get("EOS_TOKEN", None):
-                break
-            
-            idx = torch.concat([idx, next_ix], -1) # (B, block_size+1)
+            # if next_ix[0] == self.special_tokens.get("EOS_TOKEN", None):
+            #     break
 
+            idx = torch.concat([idx, next_ix], -1)  # (B, block_size+1)
+        self.train()
         return idx
 
 
@@ -465,7 +507,7 @@ class GPT:
             *self.pos_embeddings_table.parameters(),
             *self.blocks.parameters(),
             *self.ln_f.parameters(),
-            *self.ln_head.parameters()
+            *self.ln_head.parameters(),
         ]
 
     def generate(self, idx, max_new_tokens):
