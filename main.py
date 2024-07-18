@@ -3,8 +3,8 @@ import argparse
 
 import torch
 
-from net import MLP, HierarchicalMLP, GPT
-from nnutils import generate_text, train_loop
+from net import GPT, MLP, HierarchicalMLP
+from nnutils import train_loop
 from processors import CharLevelMLPProcessor, GPTProcessor
 from tokenizers import CharTokenizer
 from utils import save_artifacts
@@ -63,24 +63,36 @@ if __name__ == "__main__":
         # we need to load the model and start generating text
         import os
 
+        # check if there's a pretrained model and tokenizer
         assert os.path.exists("artifacts/model.pt"), "Model not found"
         assert os.path.exists("artifacts/tokenizer.pt"), "Tokenizer not found"
-
+        # load the model and the tokenizer
         model = torch.load("artifacts/model.pt")
         tokenizer = torch.load("artifacts/tokenizer.pt")
-        # tokenizer the context
-        context = tokenizer.encode(args['context'])
+        # tokenize the context
+        context = tokenizer.encode(args["context"])
         context = torch.tensor(context, dtype=torch.long)
-        if hasattr(model, "special_tokens") and hasattr(tokenizer, "special_token_mappings"):
+        # if the model has special tokens and tokenizer has special_token_mappings attrs
+        # then map the special token names to the special token's integer value.
+        if hasattr(model, "special_tokens") and hasattr(
+            tokenizer, "special_token_mappings"
+        ):
             # rather complex mapping for special_token_name -> token_char -> token_ix for each special token
-            model.special_tokens = {k: tokenizer.special_tokens[v] for k, v in tokenizer.special_token_mappings.items()}
-
+            model.special_tokens = {
+                k: tokenizer.special_tokens[v]
+                for k, v in tokenizer.special_token_mappings.items()
+            }
+        # generate the output tokens
         output_tokens = model.generate(
             idx=context, max_new_tokens=args["max_new_tokens"]
         )
+        # decode the output and join to the text
         text = "".join(tokenizer.decode(output_tokens.tolist())[0])
-        print(text)
+        print(text)  # print the generated text
     else:
+        # load the corresponding tokenizer and the processor for different models
+        # their behavior is rather model-agnostic, one might want to check out
+        # the source code to understand how they work internally.
         if args["model"] in ["hmlp", "mlp"]:
             tokenizer = CharTokenizer()
             processor = CharLevelMLPProcessor(
@@ -91,25 +103,26 @@ if __name__ == "__main__":
         elif args["model"] == "gpt":
             tokenizer = CharTokenizer()
             # I didn't use these in my first implementation, maybe later.
-            tokenizer.BOS_TOKEN = "" 
-            tokenizer.EOS_TOKEN = ""  
+            tokenizer.BOS_TOKEN = ""
+            tokenizer.EOS_TOKEN = ""
             tokenizer.special_tokens = {}
 
             processor = GPTProcessor(
-                paths=args['file'],
+                paths=args["file"],
                 tokenizer=tokenizer,
-                context_length=args['block_size']
+                context_length=args["block_size"],
             )
 
             pass
 
+        # get the data loaders
         train_loader, test_loader = processor.get_dataloaders(
             args["batch_size"], args["train_ratio"]
         )
+        # the vocabulary size is calculated in tokenizer already.
+        vocab_size = tokenizer.vocab_size
 
-        vocab_size = tokenizer.vocab_size + 1
-        print("vocab_size:", vocab_size)
-
+        # load the model
         if args["model"] == "hmlp":
             model = HierarchicalMLP(
                 vocab_size,
@@ -127,18 +140,19 @@ if __name__ == "__main__":
                 n_hidden=args["n_hidden"],
                 n_layers=args["n_layers"],
             )
-        elif args['model'] == "gpt":
+        elif args["model"] == "gpt":
             model = GPT(
-                n_embd=args['n_embed'],
+                n_embd=args["n_embed"],
                 vocab_size=vocab_size,
-                num_heads=args['num_heads'],
-                num_blocks=args['num_blocks'],
-                block_size=args['block_size']
+                num_heads=args["num_heads"],
+                num_blocks=args["num_blocks"],
+                block_size=args["block_size"],
             )
 
         else:
             raise NotImplementedError("Available models: MLP, HierarchicalMLP, GPT.")
 
+        # train the model
         train_losses, valid_losses = train_loop(
             model,
             train_loader,
@@ -148,6 +162,7 @@ if __name__ == "__main__":
             lrsche=args["lrsche"],
         )
 
+        # save the results
         save_artifacts(
             model=model,
             tokenizer=tokenizer,
@@ -155,7 +170,7 @@ if __name__ == "__main__":
             valid_losses=valid_losses,
             train_loader=train_loader,
             test_loader=test_loader,
-    )
+        )
 
         print("-" * 50)
         print("TRAINED THE MODEL!")
