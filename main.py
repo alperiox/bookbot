@@ -7,6 +7,7 @@ from net import MLP, HierarchicalMLP, GPT
 from nnutils import generate_text, train_loop
 from processors import CharLevelMLPProcessor, GPTProcessor
 from tokenizers import CharTokenizer
+from utils import save_artifacts
 
 parser = argparse.ArgumentParser(
     description="Train a neural net with given file to generate text"
@@ -31,7 +32,7 @@ parser.add_argument(
     "--generate", action="store_true", help="Generate text", default=False
 )
 parser.add_argument(
-    "--n_chars", type=int, default=100, help="Number of characters to generate"
+    "--max_new_tokens", type=int, default=100, help="Number of characters to generate"
 )
 parser.add_argument(
     "--model",
@@ -53,7 +54,7 @@ parser.add_argument(
 )
 parser.add_argument("--num_heads", type=int, default=3)
 parser.add_argument("--num_blocks", type=int, default=2)
-parser.add_argument("--seedtext", type=str, help="Starting text for generation")
+parser.add_argument("--context", type=str, help="Starting text for generation")
 args = parser.parse_args()
 args = vars(args)
 
@@ -63,13 +64,21 @@ if __name__ == "__main__":
         import os
 
         assert os.path.exists("artifacts/model.pt"), "Model not found"
-        assert os.path.exists("artifacts/char_to_ix.pt"), "char_to_ix not found"
-        assert os.path.exists("artifacts/ix_to_char.pt"), "ix_to_char not found"
+        assert os.path.exists("artifacts/tokenizer.pt"), "Tokenizer not found"
 
         model = torch.load("artifacts/model.pt")
-        text = generate_text(
-            args["seedtext"].lower(), model=model, n_chars=args["n_chars"]
+        tokenizer = torch.load("artifacts/tokenizer.pt")
+        # tokenizer the context
+        context = tokenizer.encode(args['context'])
+        context = torch.tensor(context, dtype=torch.long)
+        if hasattr(model, "special_tokens") and hasattr(tokenizer, "special_token_mappings"):
+            # rather complex mapping for special_token_name -> token_char -> token_ix for each special token
+            model.special_tokens = {k: tokenizer.special_tokens[v] for k, v in tokenizer.special_token_mappings.items()}
+
+        output_tokens = model.generate(
+            idx=context, max_new_tokens=args["max_new_tokens"]
         )
+        text = "".join(tokenizer.decode(output_tokens.tolist())[0])
         print(text)
     else:
         if args["model"] in ["hmlp", "mlp"]:
@@ -130,7 +139,7 @@ if __name__ == "__main__":
         else:
             raise NotImplementedError("Available models: MLP, HierarchicalMLP, GPT.")
 
-        train_loop(
+        train_losses, valid_losses = train_loop(
             model,
             train_loader,
             test_loader,
@@ -138,6 +147,16 @@ if __name__ == "__main__":
             learning_rate=args["lr"],
             lrsche=args["lrsche"],
         )
+
+        save_artifacts(
+            model=model,
+            tokenizer=tokenizer,
+            train_losses=train_losses,
+            valid_losses=valid_losses,
+            train_loader=train_loader,
+            test_loader=test_loader,
+    )
+
         print("-" * 50)
         print("TRAINED THE MODEL!")
         print("-" * 50)
