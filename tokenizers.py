@@ -94,6 +94,24 @@ class CharTokenizer(Tokenizer):
 
         return
 
+    def pad(self, sequences: list[list[int]], length: int) -> list[list[int]]:
+        """ pads the given list of sequences (a list of tokens) to the given length """
+        if not isinstance(sequences[0], list):
+            sequences = [sequences]
+
+        padded_tokens = []
+        for s in sequences:
+            L = len(s)
+            if L < length:
+                # pad the sequence
+                padded_seq = [self.special_tokens[self.BOS_TOKEN]] * (length - L) + s
+            else:
+                padded_seq = s
+            
+            padded_tokens.append(padded_seq)
+
+        return padded_tokens
+
     def encode(self, texts: list[str]) -> list[list[int]]:
         if isinstance(texts, str):
             texts = [texts]
