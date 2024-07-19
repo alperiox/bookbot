@@ -1,11 +1,56 @@
 import torch
 from torch.nn import functional as F
 
+from abc import ABC, abstractmethod
+# a simple metaclass that'd let us collect the defined layers and their parameters 
+class Meta(type):
+    def __call__(cls, *args, **kwargs):
+        obj = super().__call__(*args, **kwargs)
+        obj._collect_layers()
+        return obj
 
-class Head:
+class CombinedMeta(Meta, ABC): pass
+
+class BaseLayer(metaclass=CombinedMeta):
+
+    @abstractmethod
+    def __init__(self):
+        pass
+
+    @abstractmethod
+    def __call__(self):
+        pass
+
+    @abstractmethod
+    def parameters(self):
+        pass
+    
+    def _collect_layers(self):
+        layers = []
+        for attr_name, attr in vars(self).items(): # loop through every attribute defined in the object
+            # all my layers will be defined as BaseLayer, so maybe I can use that as a distinctive condition
+            if isinstance(attr, BaseLayer):
+                layers.append(attr)
+        self._layers = layers
+        return
+
+    def to(self, device):
+        params = self.parameters()
+        for param in params:
+            param.to(device)
+
+    def train(self):
+        for layer in self._layers:
+            layer.training = True
+
+    def eval(self):
+        for layer in self._layers:
+            layer.training = False
+
+class Head(BaseLayer):
     """one head of self-attention"""
-
     def __init__(self, n_in, n_head, context_length):
+        super().__init__()
         # the head size that'll be used to map the
         # tokens to n_head-dimensional space, without additional bias.
         self.head_size = n_head
@@ -49,10 +94,11 @@ class Head:
         ]
 
 
-class MultiHeadAttention:
+class MultiHeadAttention(BaseLayer):
     """multi-head self-attention that'll be used in GPT implementation"""
 
     def __init__(self, num_head, n_in, head_size, context_length):
+        super().__init__()
         self.head_size = head_size
         self.num_head = num_head
         # set up the multiple heads
@@ -77,8 +123,9 @@ class MultiHeadAttention:
         return params + self.proj.parameters()
 
 
-class FeedForwardBlock:
+class FeedForwardBlock(BaseLayer):
     def __init__(self, n_hidden):
+        super().__init__()
         # a simple feed-forward network at the end of the
         # decoder transformer architecture
         self.net = Sequential(
@@ -98,7 +145,7 @@ class FeedForwardBlock:
         return self.net.parameters()
 
 
-class ReLU:
+class ReLU(BaseLayer):
     def __call__(self, x):
         return (x > 0) * x
 
@@ -106,8 +153,9 @@ class ReLU:
         return []
 
 
-class DecoderTransformerBlock:
+class DecoderTransformerBlock(BaseLayer):
     def __init__(self, num_heads, n_hidden, context_length):
+        super().__init__()
         # using multiple heads will let us to provide more
         # communication channels between the tokens
         # but there's a caveat, the implementation downscales
@@ -139,8 +187,9 @@ class DecoderTransformerBlock:
         ]
 
 
-class Linear:
+class Linear(BaseLayer):
     def __init__(self, n_in, n_out, bias=True):
+        super().__init__()
         self.weight = torch.randn(n_in, n_out) / n_in**0.5
 
         self.has_bias = bias
@@ -162,7 +211,7 @@ class Linear:
             return [self.weight]
 
 
-class Tanh:
+class Tanh(BaseLayer):
     def __call__(self, x):
         self.x = x
         self.out = F.tanh(x)
@@ -172,8 +221,9 @@ class Tanh:
         return []
 
 
-class Embedding:
+class Embedding(BaseLayer):
     def __init__(self, n_vocab, n_embed):
+        super().__init__()
         self.weight = torch.randn(n_vocab, n_embed)
 
     def __call__(self, x):
@@ -185,8 +235,9 @@ class Embedding:
         return [self.weight]
 
 
-class LayerNorm:
+class LayerNorm(BaseLayer):
     def __init__(self, dim, eps=1e-5):
+        super().__init__()
         self.eps = eps
         # parameters to be trained with backprop
         self.gamma = torch.ones(dim)
@@ -204,8 +255,9 @@ class LayerNorm:
         return [self.gamma, self.beta]
 
 
-class BatchNorm1d:
+class BatchNorm1d(BaseLayer):
     def __init__(self, dim, eps=1e-5, momentum=0.1):
+        super().__init__()
         self.eps = eps
         self.momentum = momentum
         self.training = True
@@ -245,8 +297,9 @@ class BatchNorm1d:
         return [self.gamma, self.beta]
 
 
-class LinearBlock:
+class LinearBlock(BaseLayer):
     def __init__(self, n_in, n_out):
+        super().__init__()
         self.linear = Linear(n_in, n_out)
         self.bn = BatchNorm1d(n_out)
         self.tanh = Tanh()
@@ -261,7 +314,7 @@ class LinearBlock:
         return self.linear.parameters() + self.bn.parameters() + self.tanh.parameters()
 
 
-class Flatten:
+class Flatten(BaseLayer):
     def __call__(self, x: torch.tensor) -> torch.tensor:
         self.out = x.view(x.size(0), -1)
         return self.out
@@ -270,8 +323,9 @@ class Flatten:
         return []
 
 
-class FlattenConsecutive:
+class FlattenConsecutive(BaseLayer):
     def __init__(self, n):
+        super().__init__()
         self.n = n  # sum n consecutive elements
 
     def __call__(self, x):
@@ -285,15 +339,19 @@ class FlattenConsecutive:
         return []
 
 
-class Sequential:
+class Sequential(BaseLayer):
     def __init__(self, layers):
+        super().__init__()
         self.layers = layers
+        
+        for i, l in enumerate(self.layers):
+            self.__dict__[f"layer_{i}"] = l
 
     def __call__(self, x):
         self.out = x
         for layer in self.layers:
             self.out = layer(self.out)
-            # print(f"{layer.__class__.__name__:20s}:", self.out.shape)
+            # print(f"{layer.__class__(BaseLayer).__name__:20s}:", self.out.shape)
 
         return self.out
 
@@ -301,13 +359,14 @@ class Sequential:
         return [p for layer in self.layers for p in layer.parameters()]
 
 
-class HierarchicalMLP:
+class HierarchicalMLP(BaseLayer):
     def __init__(
         self, vocab_size, n_consecutive, n_embed, n_hidden, block_size, n_layers=4
     ):
         assert (
             2**n_layers == block_size
         ), "`2^n_layers` must be equal to `block_size` because of `FlattenConsecutive`!"
+        super().__init__()
         self.vocab_size = vocab_size
         self.n_consecutive = n_consecutive
         self.n_embed = n_embed
@@ -389,15 +448,16 @@ class HierarchicalMLP:
         return idx
 
 
-class MLP:
+class MLP(BaseLayer):
     def __init__(self, vocab_size, block_size, n_embed, n_hidden, n_layers=4):
+        super().__init__()
         self.layers = []
         self.vocab_size = vocab_size
         self.block_size = block_size
         self.n_embed = n_embed
         self.n_hidden = n_hidden
         self.n_layers = n_layers
-        
+
         self.special_tokens = {}
 
         self.embedding = Embedding(vocab_size, n_embed)
@@ -468,8 +528,9 @@ class MLP:
         return idx
 
 
-class GPT:
+class GPT(BaseLayer):
     def __init__(self, n_embd, vocab_size, num_heads, num_blocks, block_size):
+        super().__init__()
         self.n_embd = n_embd
         self.vocab_size = vocab_size
         self.num_heads = num_heads
