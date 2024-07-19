@@ -4,7 +4,7 @@ import argparse
 import torch
 
 from net import GPT, MLP, HierarchicalMLP
-from utils import train_loop, save_artifacts, load_artifacts
+from utils import train_loop, save_artifacts, load_artifact
 from processors import CharLevelMLPProcessor, GPTProcessor
 from tokenizers import CharTokenizer
 import os
@@ -52,9 +52,10 @@ parser.add_argument(
     default=4,
     help="number of consecutive hidden layer blocks, blocks are different for each model and can be seen in `layers.py`.",
 )
-parser.add_argument("--num_heads", type=int, default=3)
-parser.add_argument("--num_blocks", type=int, default=2)
+parser.add_argument("--num_heads", type=int, default=3, help="Number of self-attention heads for the MultiHead self-attention implementation")
+parser.add_argument("--num_blocks", type=int, default=2, help="Number of decoder transformer blocks in GPT implementation")
 parser.add_argument("--context", type=str, help="Starting text for generation")
+parser.add_argument("--save_path", type=str, help="The path to save the artifacts. Default is 'artifacts'", default="artifacts")
 args = parser.parse_args()
 args = vars(args)
 
@@ -63,13 +64,17 @@ if __name__ == "__main__":
         # we need to load the model and start generating text
 
         # check if there's a pretrained model and tokenizer
-        assert os.path.exists("artifacts/model.pt"), "Model not found"
-        assert os.path.exists("artifacts/tokenizer.pt"), "Tokenizer not found"
+        assert os.path.exists(f"{args['save_path']}/model.pt"), "Model not found"
+        assert os.path.exists(f"{args['save_path']}/tokenizer.pt"), "Tokenizer not found"
         # load the model and the tokenizer
-        model = load_artifacts("artifacts/model.pt")
-        tokenizer = load_artifacts("artifacts/tokenizer.pt")
+        model = load_artifact(args['save_path'], "model")
+        tokenizer = load_artifact(args['save_path'], "tokenizer")
         # tokenize the context
         context = tokenizer.encode(args["context"])
+        # if the model is hmlp, we should pad the input tokens in case they will be less than the context length
+        # it's because the hierarchical architecture makes use of the context length, so it requires inputs to be at least the `context length`-sized vectors
+        if args['model'] == 'hmlp':
+            context = tokenizer.pad(context, length=model.block_size)
         context = torch.tensor(context, dtype=torch.long)
         # if the model has special tokens and tokenizer has special_token_mappings attrs
         # then map the special token names to the special token's integer value.
@@ -118,7 +123,6 @@ if __name__ == "__main__":
         )
         # the vocabulary size is calculated in tokenizer already.
         vocab_size = tokenizer.vocab_size
-
         # load the model
         if args["model"] == "hmlp":
             model = HierarchicalMLP(
