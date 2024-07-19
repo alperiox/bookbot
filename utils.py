@@ -3,17 +3,15 @@ from torch.nn import functional as F
 from tqdm import tqdm
 import os
 
-def load_artifacts(*args):
-    artifacts = {}
-    for key in args:
-        artifacts[key] = torch.load(f"artifacts/{key}.pt")
-    return artifacts
+def load_artifact(save_path, name):
+    artifact = torch.load(f"{save_path}/{name}.pt")
+    return artifact
 
 
-def save_artifacts(**kwargs):
-    os.makedirs("artifacts", exist_ok=True)
+def save_artifacts(save_path, **kwargs):
+    os.makedirs(save_path, exist_ok=True)
     for key, value in kwargs.items():
-        torch.save(value, f"artifacts/{key}.pt")
+        torch.save(value, f"{save_path}/{key}.pt")
 
 
 def optimize_step(parameters, learning_rate=0.001):
@@ -58,18 +56,20 @@ def train_loop(model, train_loader, test_loader, epochs, learning_rate, lrsche):
         print("========")
         print("TRAINING (epoch:%d/%d)" % (epoch + 1, epochs))
         for i, (x, y) in bar:
+            model.train()
             # get the logits and the loss
             logits, loss = model(x, y)
             # backward pass
             loss.backward()
             optimize_step(parameters, lr)
             loss = loss.item()
-            # statistics and loggign
+            # statistics and logging
             train_losses[epoch] += loss
-            desc_text = f"({epoch*train_loader.batch_size + i*train_loader.batch_size}/{len(train_loader.dataset)}) (lr={lr:.4f}): loss {train_losses.sum()/(i+1):.4f}"
+            desc_text = f"({epoch*train_loader.batch_size + i*train_loader.batch_size}/{len(train_loader.dataset)}) (lr={lr:.4f}): loss {train_losses[epoch]/(i+1):.4f}"
             bar.set_description(desc_text)
 
         print("TESTING")
+        model.eval()
         bar = tqdm(enumerate(test_loader), total=len(test_loader))
         for i, (x, y) in bar:
             with torch.no_grad():
@@ -77,8 +77,8 @@ def train_loop(model, train_loader, test_loader, epochs, learning_rate, lrsche):
                 # and just calculate the loss
                 logits, loss = model(x, y)
             # statistics and logging, again.
-            valid_losses[epoch] += loss
-            desc_text = f"({epoch*test_loader.batch_size + i*test_loader.batch_size}/{len(test_loader.dataset)}): loss {valid_losses.sum()/(i+1):.4f}"
+            valid_losses[epoch] += loss.item()
+            desc_text = f"({epoch*test_loader.batch_size + i*test_loader.batch_size}/{len(test_loader.dataset)}): loss {valid_losses[epoch]/(i+1):.4f}"
             bar.set_description(desc_text)
     # return the losses.
     return train_losses, valid_losses
