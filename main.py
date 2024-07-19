@@ -92,6 +92,9 @@ if __name__ == "__main__":
         )
         # decode the output and join to the text
         text = "".join(tokenizer.decode(output_tokens.tolist())[0])
+        # strip the special tokens
+        for k in tokenizer.special_tokens:
+            text = text.strip(k)
         print(text)  # print the generated text
     else:
         # load the corresponding tokenizer and the processor for different models
@@ -171,6 +174,7 @@ if __name__ == "__main__":
             valid_losses=valid_losses,
             train_loader=train_loader,
             test_loader=test_loader,
+            save_path=args['save_path']
         )
 
         print("-" * 50)
