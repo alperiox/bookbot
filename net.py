@@ -1,10 +1,6 @@
 import torch
 from torch.nn import functional as F
 
-# TODO: saving the model weights
-# TODO: loading the model weights
-# TODO: generation method for the MLP models
-
 
 class Head:
     """one head of self-attention"""
@@ -37,7 +33,7 @@ class Head:
         # have the same variance around the value of head_size
         # thus scaling it down will help us preserve output variance
         wei = (q @ k.transpose(-2, -1)) * (self.head_size**-0.5)  # (B, T, T)
-        # we might want to work with shorted sequences rather than defined context length, hence `self.tril[:T, :T]`.
+        # we might want to work with shorter sequences rather than defined context length, hence `self.tril[:T, :T]`.
         wei = wei.masked_fill(self.tril[:T, :T] == 0, float("-inf"))
         # get the normalized affinities
         wei = F.softmax(wei, dim=-1)  # (B,T,T)
@@ -312,6 +308,12 @@ class HierarchicalMLP:
         assert (
             2**n_layers == block_size
         ), "`2^n_layers` must be equal to `block_size` because of `FlattenConsecutive`!"
+        self.vocab_size = vocab_size
+        self.n_consecutive = n_consecutive
+        self.n_embed = n_embed
+        self.n_hidden = n_hidden
+        self.block_size = block_size
+        self.n_layers = n_layers
 
         self.special_tokens = {}
         self.layers = [
@@ -392,6 +394,10 @@ class MLP:
         self.layers = []
         self.vocab_size = vocab_size
         self.block_size = block_size
+        self.n_embed = n_embed
+        self.n_hidden = n_hidden
+        self.n_layers = n_layers
+        
         self.special_tokens = {}
 
         self.embedding = Embedding(vocab_size, n_embed)
