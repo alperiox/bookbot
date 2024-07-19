@@ -2,7 +2,7 @@
 
 a project that reads the given file and uses a neural network to generate text that looks like from the book.
 
-the built-in neural network is an MLP network that's built with pure Pytorch (from scratch) along with batch normalization layer and Kaiming initialization.
+the built-in neural network is a MLP, Wavenet-inspired Hierarchical MLP, and a GPT network that's built with pure Pytorch (from scratch) along with batch normalization layer and Kaiming initialization.
 
 Thanks to Andrej Karpathy for his great course on deep learning.
 
@@ -25,7 +25,22 @@ Then just install the `poetry` environment and move on to the next steps.
 
 ### How to train the network?
 
-Simply run the `main.py` by setting up the following arguments:
+Simply run the `main.py` by setting up the arguments below.
+
+You can start the training using the script like in the following:
+
+```bash
+python main.py --file=romeo-and-juliet.pdf --n_embed=20 --n_hidden=200 
+            \ --block_size=15 --batch_size=64 --epochs=20 --lr=0.01
+```
+
+Or you can just start the training using the default arguments:
+
+```bash
+python main.py --file=romeo-and-juliet.pdf
+```
+
+Or if you want to have more control over the whole training, consider using a more detailed configuration:
 
 - __train_ratio__ (default: 0.8): ratio of the input data that will be used for the training
 - __file__: Path to the PDF/TXT file
@@ -43,19 +58,6 @@ Simply run the `main.py` by setting up the following arguments:
 - __num_heads__ (default: 3): number of self-attention heads in the multi-head self-attention layer in GPT implementation.
 - __num_blocks__ (default: 2): number of layer blocks given the model. Sequential linear blocks for MLP and Hierarchical MLP, DecoderTransformerBlocks for GPT.
 - __context__ (default: None, required if `generate`): the context for the text generation, please try to use a longer context than the `block_size`
-
-You can start the training using the script like in the following:
-
-```bash
-python main.py --file=romeo-and-juliet.pdf --n_embed=20 --n_hidden=200 
-            \ --block_size=15 --batch_size=64 --epochs=20 --lr=0.01
-```
-
-Or you can just start the training using the default arguments:
-
-```bash
-python main.py --file=romeo-and-juliet.pdf
-```
 
 The training will generate several artifacts and will save them in the `artifacts` directory. The saved artifacts include the model, the data loaders, calculated losses along the training, and finally the tokenizer to use the constructed character-level vocabulary.
 
