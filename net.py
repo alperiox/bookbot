@@ -35,9 +35,9 @@ class BaseLayer(metaclass=CombinedMeta):
         return
 
     def to(self, device):
-        params = self.parameters()
-        for param in params:
-            param.to(device)
+        # this might make me reconsider how to store the layer weights.
+        pass
+
 
     def train(self):
         for layer in self._layers:
