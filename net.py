@@ -1,33 +1,63 @@
+from abc import ABC, abstractmethod
+
 import torch
 from torch.nn import functional as F
 
-from abc import ABC, abstractmethod
-# a simple metaclass that'd let us collect the defined layers and their parameters 
+
+def debug(func):
+    """a decorator to save the object's __call__ outputs to the `out` attribute."""
+
+    def wrapper(obj, *args, **kwargs):
+        out = func(obj, *args, **kwargs)
+        if hasattr(obj, "log_outputs"):
+            if obj.log_outputs:
+                obj.out = out
+        else:
+            obj.out = None
+        return out
+
+    return wrapper
+
+
+# a simple metaclass that'd let us collect the defined layers and their parameters
 class Meta(type):
+    # now all the new subclasses will have their `__call__` methods wrapped in `debug` decorator.
+    def __new__(cls, name, bases, attrs):
+        if "__call__" in attrs:
+            attrs["__call__"] = debug(attrs["__call__"])
+
+        return super().__new__(cls, name, bases, attrs)
+
     def __call__(cls, *args, **kwargs):
         obj = super().__call__(*args, **kwargs)
         obj._collect_layers()
         return obj
 
-class CombinedMeta(Meta, ABC): pass
+
+class CombinedMeta(Meta, ABC):
+    pass
+
 
 class BaseLayer(metaclass=CombinedMeta):
 
     @abstractmethod
-    def __init__(self):
-        pass
+    def __init__(self, log_outputs=False):
+        self.out = None
+        self.log_outputs = log_outputs
 
     @abstractmethod
-    def __call__(self):
+    def __call__(self, x):
         pass
 
     @abstractmethod
     def parameters(self):
         pass
-    
+
     def _collect_layers(self):
         layers = []
-        for attr_name, attr in vars(self).items(): # loop through every attribute defined in the object
+        for attr_name, attr in vars(
+            self
+        ).items():  # loop through every attribute defined in the object
             # all my layers will be defined as BaseLayer, so maybe I can use that as a distinctive condition
             if isinstance(attr, BaseLayer):
                 layers.append(attr)
@@ -38,7 +68,6 @@ class BaseLayer(metaclass=CombinedMeta):
         # this might make me reconsider how to store the layer weights.
         pass
 
-
     def train(self):
         for layer in self._layers:
             layer.training = True
@@ -47,8 +76,10 @@ class BaseLayer(metaclass=CombinedMeta):
         for layer in self._layers:
             layer.training = False
 
+
 class Head(BaseLayer):
     """one head of self-attention"""
+
     def __init__(self, n_in, n_head, context_length):
         super().__init__()
         # the head size that'll be used to map the
@@ -343,7 +374,7 @@ class Sequential(BaseLayer):
     def __init__(self, layers):
         super().__init__()
         self.layers = layers
-        
+
         for i, l in enumerate(self.layers):
             self.__dict__[f"layer_{i}"] = l
 
