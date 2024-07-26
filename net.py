@@ -118,11 +118,11 @@ class Head(BaseLayer):
         return self.out
 
     def parameters(self):
-        return [
-            *self.key.parameters(),
-            *self.query.parameters(),
-            *self.value.parameters(),
-        ]
+        return {
+            "key": self.key.parameters(),
+            "query": self.query.parameters(),
+            "value": self.value.parameters(),
+        }
 
 
 class MultiHeadAttention(BaseLayer):
@@ -148,10 +148,11 @@ class MultiHeadAttention(BaseLayer):
         return self.out
 
     def parameters(self):
-        params = []
-        for h in self.heads:
-            params.extend(h.parameters())
-        return params + self.proj.parameters()
+        params = {}
+        for ix, h in enumerate(self.heads):
+            params[f"head{ix}"] = h.parameters()
+        params["proj"] = self.proj.parameters()
+        return params
 
 
 class FeedForwardBlock(BaseLayer):
@@ -210,12 +211,12 @@ class DecoderTransformerBlock(BaseLayer):
         return self.out
 
     def parameters(self):
-        return [
-            *self.self_attn.parameters(),
-            *self.ffwd_net.parameters(),
-            *self.ln1.parameters(),
-            *self.ln2.parameters(),
-        ]
+        return {
+            "layernorm1": self.ln1.parameters(),
+            "self_attn": self.self_attn.parameters(),
+            "layernorm2": self.ln2.parameters(),
+            "ffwd_net": self.ffwd_net.parameters(),
+        }
 
 
 class Linear(BaseLayer):
@@ -236,10 +237,10 @@ class Linear(BaseLayer):
         return self.out
 
     def parameters(self):
+        params = {"weight": self.weight}
         if self.has_bias:
-            return [self.weight, self.bias]
-        else:
-            return [self.weight]
+            params["bias"] = self.bias
+        return params
 
 
 class Tanh(BaseLayer):
@@ -263,7 +264,7 @@ class Embedding(BaseLayer):
         return self.out
 
     def parameters(self):
-        return [self.weight]
+        return {"weight": self.weight}
 
 
 class LayerNorm(BaseLayer):
@@ -283,7 +284,7 @@ class LayerNorm(BaseLayer):
         return self.out
 
     def parameters(self):
-        return [self.gamma, self.beta]
+        return {"gamma": self.gamma, "beta": self.beta}
 
 
 class BatchNorm1d(BaseLayer):
@@ -325,7 +326,7 @@ class BatchNorm1d(BaseLayer):
         return self.out
 
     def parameters(self):
-        return [self.gamma, self.beta]
+        return {"gamma": self.gamma, "beta": self.beta}
 
 
 class LinearBlock(BaseLayer):
@@ -342,7 +343,7 @@ class LinearBlock(BaseLayer):
         return self.out
 
     def parameters(self):
-        return self.linear.parameters() + self.bn.parameters() + self.tanh.parameters()
+        return {"linear": self.linear.parameters(), "batchnorm": self.bn.parameters()}
 
 
 class Flatten(BaseLayer):
@@ -387,7 +388,21 @@ class Sequential(BaseLayer):
         return self.out
 
     def parameters(self):
-        return [p for layer in self.layers for p in layer.parameters()]
+        params = {}
+        layernames = [l.__class__.__name__.lower() for l in self.layers]
+        counts = {}
+        for name in layernames:
+            counts[name] = counts.get(name, 0) + 1
+
+        for name, l in zip(layernames, self.layers):
+            ix = counts[name] - 1
+            if ix == 0:
+                ix = ""
+
+            layername = l.__class__.__name__.lower()
+            params[f"{layername}{ix}"] = l.parameters()
+
+        return params
 
 
 class HierarchicalMLP(BaseLayer):
@@ -499,14 +514,17 @@ class MLP(BaseLayer):
 
         self.layers.append(Linear(n_hidden, vocab_size))
 
+        with torch.no_grad():
+            self.layers[-1].weight *= 0.1
+
+        self.net = Sequential(self.layers)
+
     def __call__(self, x, y=None):
         self.x = x  # (B, T)
 
         x = self.embedding(x)
         x = x.view(x.size(0), -1)
-
-        for layer in self.layers:
-            x = layer(x)
+        x = self.net(x)
 
         if y is None:
             loss = None
@@ -534,9 +552,10 @@ class MLP(BaseLayer):
                 layer.bn.training = True
 
     def parameters(self):
-        return [self.embedding.weight] + [
-            param for layer in self.layers for param in layer.parameters()
-        ]
+        return {
+            "embedding": self.embedding.parameters(),
+            "sequential": self.net.parameters(),
+        }
 
     def generate(self, idx, max_new_tokens):
         if idx.shape[0] != 1:
@@ -600,13 +619,13 @@ class GPT(BaseLayer):
         return logits, loss
 
     def parameters(self):
-        return [
-            *self.token_embeddings_table.parameters(),
-            *self.pos_embeddings_table.parameters(),
-            *self.blocks.parameters(),
-            *self.ln_f.parameters(),
-            *self.ln_head.parameters(),
-        ]
+        return {
+            "token_embeddings_table": self.token_embeddings_table.parameters(),
+            "pos_embeddings_table": self.pos_embeddings_table.parameters(),
+            "blocks": self.blocks.parameters(),
+            "linear_final": self.ln_f.parameters(),
+            "language_head": self.ln_head.parameters(),
+        }
 
     def generate(self, idx, max_new_tokens):
         # idx is (B, T) array where T is the context length
