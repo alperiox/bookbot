@@ -52,8 +52,12 @@ class BaseLayer(metaclass=CombinedMeta):
         return
 
     def to(self, device):
-        # this might make me reconsider how to store the layer weights.
-        pass
+        attrs = vars(self)
+        for attr_name in vars(self):
+            attr = attrs[attr_name]
+            if isinstance(attr, BaseLayer) or isinstance(attr, torch.Tensor):
+                self.__setattr__(attr_name, attr.to(device))
+        return self
 
     def train(self):
         for layer in self._layers:
