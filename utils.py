@@ -1,7 +1,37 @@
+import os
+
 import torch
 from torch.nn import functional as F
 from tqdm import tqdm
-import os
+
+
+def debug(func):
+    """a decorator to save the object's __call__ outputs to the `out` attribute."""
+
+    def wrapper(obj, *args, **kwargs):
+        out = func(obj, *args, **kwargs)
+        if hasattr(obj, "log_outputs"):
+            if obj.log_outputs:
+                obj.out = out
+        else:
+            obj.out = None
+        return out
+
+    return wrapper
+
+
+def flatten_dict(d: dict) -> dict:
+    flattened_dict = {}
+    for k, v in d.items():
+        if isinstance(v, dict):
+            flattened_dict.update(
+                {f"{k}.{key}": val for key, val in flatten_dict(v).items()}
+            )
+        else:
+            flattened_dict[k] = v
+
+    return flattened_dict
+
 
 def load_artifact(save_path, name):
     artifact = torch.load(f"{save_path}/{name}.pt")
@@ -16,11 +46,12 @@ def save_artifacts(save_path, **kwargs):
 
 def optimize_step(parameters, learning_rate=0.001):
     """optimize the model parameters just once using SGD."""
-    for param in parameters:
+    for k, param in parameters.items():
         param.data += -learning_rate * param.grad
 
-    for param in parameters:
+    for k, param in parameters.items():
         param.grad = None
+
 
 def train_loop(model, train_loader, test_loader, epochs, learning_rate, lrsche):
     """
@@ -35,7 +66,7 @@ def train_loop(model, train_loader, test_loader, epochs, learning_rate, lrsche):
     """
     # allow the model parameters to calculate gradients
     parameters = model.parameters()
-    for p in parameters:
+    for k, p in parameters.items():
         p.requires_grad = True
 
     # loss vectors
