@@ -77,6 +77,12 @@ parser.add_argument(
     help="The path to save the artifacts. Default is 'artifacts'",
     default="artifacts",
 )
+parser.add_argument(
+    "--device",
+    type=str,
+    help="The device to train the models on. default: cpu",
+    default="cpu",
+)
 args = parser.parse_args()
 args = vars(args)
 
@@ -193,6 +199,7 @@ if __name__ == "__main__":
             epochs=args["epochs"],
             learning_rate=args["lr"],
             lrsche=args["lrsche"],
+            device=args["device"],
         )
 
         # save the results
