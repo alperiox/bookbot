@@ -1,13 +1,13 @@
 # to turn this into a cli, we need an argument parser
 import argparse
+import os
 
 import torch
 
 from net import GPT, MLP, HierarchicalMLP
-from utils import train_loop, save_artifacts, load_artifact
 from processors import CharLevelMLPProcessor, GPTProcessor
 from tokenizers import CharTokenizer
-import os
+from utils import load_artifact, save_artifacts, train_loop
 
 parser = argparse.ArgumentParser(
     description="Train a neural net with given file to generate text"
@@ -52,10 +52,31 @@ parser.add_argument(
     default=4,
     help="number of consecutive hidden layer blocks, blocks are different for each model and can be seen in `layers.py`.",
 )
-parser.add_argument("--num_heads", type=int, default=3, help="Number of self-attention heads for the MultiHead self-attention implementation")
-parser.add_argument("--num_blocks", type=int, default=2, help="Number of decoder transformer blocks in GPT implementation")
+parser.add_argument(
+    "--num_heads",
+    type=int,
+    default=3,
+    help="Number of self-attention heads for the MultiHead self-attention implementation",
+)
+parser.add_argument(
+    "--num_blocks",
+    type=int,
+    default=2,
+    help="Number of decoder transformer blocks in GPT implementation",
+)
 parser.add_argument("--context", type=str, help="Starting text for generation")
-parser.add_argument("--save_path", type=str, help="The path to save the artifacts. Default is 'artifacts'", default="artifacts")
+parser.add_argument(
+    "--save_path",
+    type=str,
+    help="The path to save the artifacts. Default is 'artifacts'",
+    default="artifacts",
+)
+parser.add_argument(
+    "--device",
+    type=str,
+    help="The device to train the models on. default: cpu",
+    default="cpu",
+)
 args = parser.parse_args()
 args = vars(args)
 
@@ -65,15 +86,17 @@ if __name__ == "__main__":
 
         # check if there's a pretrained model and tokenizer
         assert os.path.exists(f"{args['save_path']}/model.pt"), "Model not found"
-        assert os.path.exists(f"{args['save_path']}/tokenizer.pt"), "Tokenizer not found"
+        assert os.path.exists(
+            f"{args['save_path']}/tokenizer.pt"
+        ), "Tokenizer not found"
         # load the model and the tokenizer
-        model = load_artifact(args['save_path'], "model")
-        tokenizer = load_artifact(args['save_path'], "tokenizer")
+        model = load_artifact(args["save_path"], "model")
+        tokenizer = load_artifact(args["save_path"], "tokenizer")
         # tokenize the context
         context = tokenizer.encode(args["context"])
         # if the model is hmlp, we should pad the input tokens in case they will be less than the context length
         # it's because the hierarchical architecture makes use of the context length, so it requires inputs to be at least the `context length`-sized vectors
-        if args['model'] == 'hmlp':
+        if args["model"] == "hmlp":
             context = tokenizer.pad(context, length=model.block_size)
         context = torch.tensor(context, dtype=torch.long)
         # if the model has special tokens and tokenizer has special_token_mappings attrs
@@ -164,6 +187,7 @@ if __name__ == "__main__":
             epochs=args["epochs"],
             learning_rate=args["lr"],
             lrsche=args["lrsche"],
+            device=args["device"],
         )
 
         # save the results
@@ -174,7 +198,7 @@ if __name__ == "__main__":
             valid_losses=valid_losses,
             train_loader=train_loader,
             test_loader=test_loader,
-            save_path=args['save_path']
+            save_path=args["save_path"],
         )
 
         print("-" * 50)

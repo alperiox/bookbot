@@ -53,7 +53,7 @@ def optimize_step(parameters, learning_rate=0.001):
         param.grad = None
 
 
-def train_loop(model, train_loader, test_loader, epochs, learning_rate, lrsche):
+def train_loop(model, train_loader, test_loader, epochs, learning_rate, lrsche, device):
     """
     Trains the given model using the provided data loaders.
 
@@ -76,6 +76,8 @@ def train_loop(model, train_loader, test_loader, epochs, learning_rate, lrsche):
     # the initial learning_rate
     lr = learning_rate
 
+    model.to(device)
+
     # training loop
     for epoch in range(epochs):
         # set up the tqdm bar
@@ -86,8 +88,9 @@ def train_loop(model, train_loader, test_loader, epochs, learning_rate, lrsche):
                 lr = lr / 10
         print("========")
         print("TRAINING (epoch:%d/%d)" % (epoch + 1, epochs))
+        model.train()
         for i, (x, y) in bar:
-            model.train()
+            x, y = x.to(device), y.to(device)
             # get the logits and the loss
             logits, loss = model(x, y)
             # backward pass
@@ -104,6 +107,7 @@ def train_loop(model, train_loader, test_loader, epochs, learning_rate, lrsche):
         bar = tqdm(enumerate(test_loader), total=len(test_loader))
         for i, (x, y) in bar:
             with torch.no_grad():
+                x, y = x.to(device), y.to(device)
                 # same as above, don't calculate the gradients this time
                 # and just calculate the loss
                 logits, loss = model(x, y)
