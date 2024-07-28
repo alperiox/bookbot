@@ -57,6 +57,9 @@ class BaseLayer(metaclass=CombinedMeta):
             attr = attrs[attr_name]
             if isinstance(attr, BaseLayer) or isinstance(attr, torch.Tensor):
                 self.__setattr__(attr_name, attr.to(device))
+            elif isinstance(attr, list):
+                if all(isinstance(a, BaseLayer) for a in attr):
+                    self.__setattr__(attr_name, [a.to(device) for a in attr])
         return self
 
     def train(self):
@@ -372,9 +375,6 @@ class Sequential(BaseLayer):
     def __init__(self, layers):
         super().__init__()
         self.layers = layers
-
-        for i, l in enumerate(self.layers):
-            self.__dict__[f"layer_{i}"] = l
 
     def __call__(self, x):
         self.out = x
