@@ -13,6 +13,7 @@ from visualizations import (
     get_layer_output_histograms,
     plot_attn_heatmaps,
     plot_emb_weights,
+    save_loss_figures,
 )
 
 parser = argparse.ArgumentParser(
@@ -186,7 +187,29 @@ if __name__ == "__main__":
             raise NotImplementedError("Available models: MLP, HierarchicalMLP, GPT.")
 
         # get the baseline score
+        sample_input = "what is the meaning of life?"
+        print("sample input: ", sample_input[: model.block_size])
+        sample_input = torch.tensor(
+            tokenizer.encode(sample_input[: model.block_size]), dtype=torch.long
+        )
+
         get_baseline_score(model)
+        get_layer_output_histograms(
+            model,
+            save_affix="pretraining",
+            sample_input=sample_input,
+            save_path=args["save_path"],
+        )
+        plot_emb_weights(
+            model, save_affix="pretraining", plot_text=True, save_path=args["save_path"]
+        )
+        plot_attn_heatmaps(
+            model,
+            save_affix="pretraining",
+            sample_input=sample_input,
+            plot_text=True,
+            save_path=args["save_path"],
+        )
 
         print("VOCABULARY:")
         print(tokenizer.vocabulary)
@@ -200,6 +223,24 @@ if __name__ == "__main__":
             learning_rate=args["lr"],
             lrsche=args["lrsche"],
             device=args["device"],
+        )
+
+        save_loss_figures(train_losses, valid_losses, save_path=args["save_path"])
+        get_layer_output_histograms(
+            model,
+            save_affix="results",
+            sample_input=sample_input,
+            save_path=args["save_path"],
+        )
+        plot_emb_weights(
+            model, save_affix="results", plot_text=True, save_path=args["save_path"]
+        )
+        plot_attn_heatmaps(
+            model,
+            save_affix="results",
+            sample_input=sample_input,
+            plot_text=True,
+            save_path=args["save_path"],
         )
 
         # save the results
