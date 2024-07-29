@@ -217,22 +217,27 @@ def plot_attn_heatmaps(
         sample_input = torch.randint(
             0, model.vocab_size - 1, (1, model.block_size), dtype=torch.long
         )
-    model(sample_input)
 
     attention_outputs = []
+    out = model.token_embeddings_table(sample_input) + model.pos_embeddings_table(
+        torch.arange(model.block_size)
+    )
     for i, dtb in enumerate(model.blocks.layers):
-        dtb_attn_out = []
-        # get the attention weights for each head
-        for j, attn_head in enumerate(dtb.self_attn.heads):
-            # get the query and key outputs
-            q = attn_head.query.out
-            k = attn_head.key.out
-            w = (q @ k.transpose(-2, -1)) * (
-                attn_head.head_size**-0.5
-            )  # calculate the attention weights
-            # append the attention weights to the list
-            dtb_attn_out.append(w[0])  # (1, T, T)
-        attention_outputs.append(dtb_attn_out)
+        k = out @ dtb.self_attn.key
+        q = out @ dtb.self_attn.query
+        w = (q @ k.transpose(-2, -1)) * (
+            dtb.self_attn.head_size**-0.5
+        )  # (num_heads, T, T)
+        w = w.detach()  # (num_heads, T, T)
+
+        attention_outputs.append(w)
+
+        out = dtb(out)
+
+    attention_outputs = [
+        [w[head_ix, :, :] for head_ix in range(model.num_heads)]
+        for w in attention_outputs
+    ]
 
     # plot the heatmaps
     font_size = 2 * model.num_heads
