@@ -42,22 +42,25 @@ python main.py --file=romeo-and-juliet.pdf
 
 Or if you want to have more control over the whole training, consider using a more detailed configuration:
 
-- __train_ratio__ (default: 0.8): ratio of the input data that will be used for the training
-- __file__: Path to the PDF/TXT file
-- __n_embed__ (default: 15): embedding vector's dimension
-- __n_hidden__ (default: 400): hidden layer's dimensions (the hidden layers will be defined as n_hidden x n_hidden)
-- __block_size__ (default: 10): block size to set up the dataset, it's our context window in this project.
-- __batch_size__ (default: 32): the amount of samples that'll be processed in one go
-- __epochs__ (default: 10): number of epochs to train the model.
-- __lr__ (default: 0.001): learning rate to update the weights
-- __generate__ (default: False): to run the generation mode, it's required to generate text using the pre-trained model. So you should train a model first.
-- __max_new_tokens__ (default: 100): the amount of tokens that will be generated if `generate` flag is active
-- __model__ (default: gpt): hierarchical mlp (hmlp), mlp model (mlp) or gpt (gpt) model to train.
-- __n_consecutive__ (default: 2): the amount of consecutive tokens to concatenate in the hierarchical model.
-- __n_layers__ (default: 4): number of processor blocks in the model, check out the models in `layers.py` for more information about its usage.
-- __num_heads__ (default: 3): number of self-attention heads in the multi-head self-attention layer in GPT implementation.
-- __num_blocks__ (default: 2): number of layer blocks given the model. Sequential linear blocks for MLP and Hierarchical MLP, DecoderTransformerBlocks for GPT.
-- __context__ (default: None, required if `generate`): the context for the text generation, please try to use a longer context than the `block_size`
+| Argument | Default Value | Description |
+|----------|---------------|-------------|
+| train_ratio | 0.8 | Ratio of the input data that will be used for training |
+| file | - | Path to the PDF/TXT file |
+| n_embed | 15 | Embedding vector's dimension |
+| n_hidden | 400 | Hidden layer's dimensions (the hidden layers will be defined as n_hidden x n_hidden) |
+| block_size | 10 | Block size to set up the dataset, it's our context window in this project |
+| batch_size | 32 | The amount of samples that'll be processed in one go |
+| epochs | 10 | Number of epochs to train the model |
+| lr | 0.001 | Learning rate to update the weights |
+| generate | False | To run the generation mode, it's required to generate text using the pre-trained model. So you should train a model first |
+| max_new_tokens | 100 | The amount of tokens that will be generated if `generate` flag is active |
+| model | gpt | Hierarchical mlp (hmlp), mlp model (mlp) or gpt (gpt) model to train |
+| n_consecutive | 2 | The amount of consecutive tokens to concatenate in the hierarchical model |
+| n_layers | 4 | Number of processor blocks in the model, check out the models in `layers.py` for more information about its usage |
+| num_heads | 3 | Number of self-attention heads in the multi-head self-attention layer in GPT implementation |
+| num_blocks | 2 | Number of layer blocks given the model. Sequential linear blocks for MLP and Hierarchical MLP, DecoderTransformerBlocks for GPT |
+| context | None | The context for the text generation, please try to use a longer context than the `block_size` (required if `generate` is True) |
+| device | cpu | The device to train the models on, available values are `mps`, `cpu` and `cuda`. |
 
 The training will generate several artifacts and will save them in the `artifacts` directory. The saved artifacts include the model, the data loaders, calculated losses along the training, and finally the tokenizer to use the constructed character-level vocabulary.
 
