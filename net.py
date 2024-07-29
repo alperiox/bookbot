@@ -122,6 +122,73 @@ class Head(BaseLayer):
 
 
 class MultiHeadAttention(BaseLayer):
+    """implements multi-headed masked self-attention using tensor operations"""
+
+    def __init__(self, num_heads, n_embd, head_size, block_size):
+        super().__init__()
+        self.n_embd = n_embd
+        self.num_heads = num_heads
+        self.head_size = head_size
+        self.block_size = block_size
+
+        self.key = torch.randn(num_heads, n_embd, head_size)
+        self.query = torch.randn(num_heads, n_embd, head_size)
+        self.value = torch.randn(num_heads, n_embd, head_size)
+
+        self.proj = Linear(n_embd, n_embd)
+
+        # (B, T, n_embd) x (num_heads, n_embd, head_size) --> (B, num_heads, T, head_size)
+        self.tril = torch.tril(torch.ones(num_heads, block_size, block_size))
+
+    def __call__(self, x):
+        """
+        x: (B, T, n_embd) tensor
+
+        returns: (B, T, n_embd) tensor
+
+
+        """
+
+        # Naming convention for the comments in the code:
+        # bs: batch size
+        # nh: number of heads
+        # cl: context length
+        # hs: head size
+        # ne: n_embd
+
+        B, T, C = x.shape
+        x = x.unsqueeze(1)  # (batch_size, 1, context_length, n_embd)
+        k = x @ self.key  # (batch_size, num_heads, context_length, head_size)
+        q = x @ self.query  # (batch_size, num_heads, context_length, head_size)
+
+        wei = q @ k.transpose(
+            -2, -1
+        )  # (bs, nh, cl, hs) x (bs, nh, hs, cl) -> (bs, nh, cl, cl)
+        wei = wei.masked_fill(self.tril[:, :T, :T] == 0, float("-inf"))
+        wei = F.softmax(wei, dim=-1)  # (bs, nh, cl, cl)
+
+        v = x @ self.value  # (bs, 1, cl, ne) x (nh, ne, hs) -> (bs, nh, cl, hs)
+        out = wei @ v  # (bs, nh, cl, cl) x (bs, nh, cl, hs) -> (bs, nh, cl, hs)
+        out = out.transpose(1, 2)  # (bs, cl, nh, hs)
+        out = out.reshape(
+            out.size(0), out.size(1), self.n_embd
+        )  # (bs, cl, n_embd) = (B, T, C)
+
+        out = self.proj(out)
+
+        return out
+
+    def parameters(self):
+        params = {
+            "key": self.key,
+            "query": self.query,
+            "value": self.value,
+        }
+        params["proj"] = self.proj.parameters()
+        return flatten_dict(params)
+
+
+class MultiHeadAttentionConcat(BaseLayer):
     """multi-head self-attention that'll be used in GPT implementation"""
 
     def __init__(self, num_head, n_in, head_size, context_length):
