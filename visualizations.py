@@ -14,11 +14,25 @@
 #       so if the ratio is too high, it means that the gradients are too high wtr to the input
 #       and we actually want constant but smaller updates throughout the network to not miss any local minimas et.c
 # TODO: ratio of the amount of change vs the weights, the stats should be saved in L7 here
+from pathlib import Path
+
 import matplotlib.pyplot as plt
 import torch
 from sklearn.decomposition import PCA
 
 from net import GPT
+
+
+def save_loss_figures(
+    train_losses: torch.Tensor, valid_losses: torch.Tensor, save_path: str = "artifacts"
+):
+    plt.figure(figsize=(10, 5))
+    plt.plot(train_losses.tolist(), label="train loss")
+    plt.plot(valid_losses.tolist(), label="valid loss")
+    plt.legend()
+    path = Path(save_path)
+    plt.savefig(path / "losses.png")
+    return
 
 
 # 1: Baseline
@@ -43,7 +57,12 @@ def get_baseline_score(model):
 # 2: Layer output distributions as histograms (specific to the model)
 
 
-def get_layer_output_histograms(model: GPT, sample_input: torch.Tensor = None):
+def get_layer_output_histograms(
+    model: GPT,
+    sample_input: torch.Tensor = None,
+    save_affix: str = "pretraining",
+    save_path: str = "artifacts",
+):
     """
     Generate histograms of layer outputs for a given model.
 
@@ -57,7 +76,7 @@ def get_layer_output_histograms(model: GPT, sample_input: torch.Tensor = None):
     Returns:
     None. Displays the histograms using matplotlib.
     """
-    if not sample_input:
+    if sample_input is None:
         sample_input = torch.randint(
             0, model.vocab_size - 1, (1, model.block_size), dtype=torch.long
         )
@@ -87,11 +106,13 @@ def get_layer_output_histograms(model: GPT, sample_input: torch.Tensor = None):
     # generate 2x3 subplots
     fig, axs = plt.subplots(2, 3, figsize=(15, 10))
 
+    path = Path(save_path)
+
     # set the plot titles and plot the layer outputs according to subplots
     for title, output, ax in zip(plot_titles, layer_outputs, axs.flatten()):
         ax.set_title(title)
         ax.hist(output.view(-1).tolist(), 50)
-    plt.show()
+    fig.savefig(path / f"layer_output_histograms_{save_affix}.png")
 
     # now get into the decoder transformer blocks (dtb)
     out = emb
@@ -111,7 +132,7 @@ def get_layer_output_histograms(model: GPT, sample_input: torch.Tensor = None):
             ax.hist(output.view(-1).tolist(), 50)
 
         fig.suptitle(f"DecoderTransformerBlock {i+1}")
-        plt.show()
+        fig.savefig(path / f"layer_output_histograms_{save_affix}_dtb_{i+1}.png")
 
 
 # 3: layer output heatmaps
@@ -120,7 +141,12 @@ def get_layer_output_histograms(model: GPT, sample_input: torch.Tensor = None):
 # we'll use emb1, emb2 and emb
 
 
-def plot_emb_weights(model: GPT, plot_text: bool = False):
+def plot_emb_weights(
+    model: GPT,
+    plot_text: bool = False,
+    save_affix: str = "pretraining",
+    save_path: str = "artifacts",
+):
     """
     Plot heatmaps of the embedding weights.
 
@@ -135,6 +161,7 @@ def plot_emb_weights(model: GPT, plot_text: bool = False):
     None. Displays the heatmaps using matplotlib.
     """
     fig, axs = plt.subplots(2, 1, figsize=(15, 5))
+    path = Path(save_path)
     weights = [model.pos_embeddings_table.weight, model.token_embeddings_table.weight]
     # apply PCA to the weights
     pca = PCA(n_components=1)  # reduce to 1D
@@ -159,14 +186,18 @@ def plot_emb_weights(model: GPT, plot_text: bool = False):
                     )
 
     plt.suptitle("Embedding heatmaps")
-    plt.show()
+    fig.savefig(path / f"embedding_heatmaps_{save_affix}.png")
 
     # attention heatmaps
     # we'll use the attention heads' outputs from the decoder transformer blocks
 
 
 def plot_attn_heatmaps(
-    model: GPT, sample_input: torch.Tensor = None, plot_text: bool = False
+    model: GPT,
+    sample_input: torch.Tensor = None,
+    plot_text: bool = False,
+    save_affix: str = "pretraining",
+    save_path: str = "artifacts",
 ):
     """
     Plot heatmaps of attention weights for each layer and head.
@@ -182,14 +213,14 @@ def plot_attn_heatmaps(
     Returns:
     None. Displays the heatmaps using matplotlib.
     """
-    if not sample_input:
+    if sample_input is None:
         sample_input = torch.randint(
             0, model.vocab_size - 1, (1, model.block_size), dtype=torch.long
         )
     model(sample_input)
 
     attention_outputs = []
-    for i, dtb in enumerate(gpt.blocks.layers):
+    for i, dtb in enumerate(model.blocks.layers):
         dtb_attn_out = []
         # get the attention weights for each head
         for j, attn_head in enumerate(dtb.self_attn.heads):
@@ -206,8 +237,9 @@ def plot_attn_heatmaps(
     # plot the heatmaps
     font_size = 2 * model.num_heads
     figsize = (int(7.5 * model.num_heads), int(5 * model.num_heads))
+    path = Path(save_path)
 
-    fig, axs = plt.subplots(len(gpt.blocks.layers), gpt.num_heads, figsize=figsize)
+    fig, axs = plt.subplots(len(model.blocks.layers), model.num_heads, figsize=figsize)
     for i, dtb_attn_out in enumerate(attention_outputs):
         for j, attn_head_out in enumerate(dtb_attn_out):
             # normalize the attention weights
@@ -231,4 +263,4 @@ def plot_attn_heatmaps(
                         )
 
     plt.suptitle("Attention heatmaps")
-    plt.show()
+    fig.savefig(path / f"attention_heatmaps_{save_affix}.png")
