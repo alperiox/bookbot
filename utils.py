@@ -65,9 +65,6 @@ def train_loop(model, train_loader, test_loader, epochs, learning_rate, lrsche, 
     lrsche (bool): whether apply a learning rate decay or not
     """
     # allow the model parameters to calculate gradients
-    parameters = model.parameters()
-    for k, p in parameters.items():
-        p.requires_grad = True
 
     # loss vectors
     train_losses = torch.zeros(epochs)
@@ -78,13 +75,16 @@ def train_loop(model, train_loader, test_loader, epochs, learning_rate, lrsche, 
 
     model.to(device)
 
+    parameters = model.parameters()
+    for k, p in parameters.items():
+        p.requires_grad = True
     # training loop
     for epoch in range(epochs):
         # set up the tqdm bar
         bar = tqdm(enumerate(train_loader), total=len(train_loader))
         # decay the learning rate if it's provided
         if lrsche:
-            if epoch == int(epochs * 0.5):
+            if (epoch + 1) % int(epochs * 0.3) == 0:
                 lr = lr / 10
         print("========")
         print("TRAINING (epoch:%d/%d)" % (epoch + 1, epochs))
@@ -115,5 +115,7 @@ def train_loop(model, train_loader, test_loader, epochs, learning_rate, lrsche, 
             valid_losses[epoch] += loss.item()
             desc_text = f"({epoch*test_loader.batch_size + i*test_loader.batch_size}/{len(test_loader.dataset)}): loss {valid_losses[epoch]/(i+1):.4f}"
             bar.set_description(desc_text)
+
+    model.to("cpu")  # move the model to the cpu
     # return the losses.
     return train_losses, valid_losses
