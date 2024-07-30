@@ -76,6 +76,14 @@ def get_layer_output_histograms(
     Returns:
     None. Displays the histograms using matplotlib.
     """
+    if model.__class__.__name__ != "GPT":
+        print(
+            NotImplementedError(
+                "Plotting layer outputs are only available for GPT models for now."
+            )
+        )
+        return
+
     if sample_input is None:
         sample_input = torch.randint(
             0, model.vocab_size - 1, (1, model.block_size), dtype=torch.long
@@ -160,6 +168,14 @@ def plot_emb_weights(
     Returns:
     None. Displays the heatmaps using matplotlib.
     """
+    if model.__class__.__name__ != "GPT":
+        print(
+            NotImplementedError(
+                "Plotting embedding weights are only available for GPT models for now."
+            )
+        )
+        return
+
     fig, axs = plt.subplots(2, 1, figsize=(15, 5))
     path = Path(save_path)
     weights = [model.pos_embeddings_table.weight, model.token_embeddings_table.weight]
