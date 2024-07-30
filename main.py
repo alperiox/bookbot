@@ -203,13 +203,14 @@ if __name__ == "__main__":
         plot_emb_weights(
             model, save_affix="pretraining", plot_text=True, save_path=args["save_path"]
         )
-        plot_attn_heatmaps(
-            model,
-            save_affix="pretraining",
-            sample_input=sample_input,
-            plot_text=True,
-            save_path=args["save_path"],
-        )
+        if args["model"] == "gpt":
+            plot_attn_heatmaps(
+                model,
+                save_affix="pretraining",
+                sample_input=sample_input,
+                plot_text=True,
+                save_path=args["save_path"],
+            )
 
         print("VOCABULARY:")
         print(tokenizer.vocabulary)
@@ -235,13 +236,14 @@ if __name__ == "__main__":
         plot_emb_weights(
             model, save_affix="results", plot_text=True, save_path=args["save_path"]
         )
-        plot_attn_heatmaps(
-            model,
-            save_affix="results",
-            sample_input=sample_input,
-            plot_text=True,
-            save_path=args["save_path"],
-        )
+        if args["model"] == "gpt":
+            plot_attn_heatmaps(
+                model,
+                save_affix="results",
+                sample_input=sample_input,
+                plot_text=True,
+                save_path=args["save_path"],
+            )
 
         # save the results
         save_artifacts(
