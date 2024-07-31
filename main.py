@@ -7,13 +7,12 @@ import torch
 from net import GPT, MLP, HierarchicalMLP
 from processors import CharLevelMLPProcessor, GPTProcessor
 from tokenizers import CharTokenizer
-from utils import load_artifact, save_artifacts, train_loop
-from visualizations import (
+from utils import (
     get_baseline_score,
-    get_layer_output_histograms,
-    plot_attn_heatmaps,
-    plot_emb_weights,
+    load_artifact,
+    save_artifacts,
     save_loss_figures,
+    train_loop,
 )
 
 parser = argparse.ArgumentParser(
@@ -187,28 +186,26 @@ if __name__ == "__main__":
             raise NotImplementedError("Available models: MLP, HierarchicalMLP, GPT.")
 
         # get the baseline score
-        sample_input = "what is the meaning of life?"
-        print("sample input: ", sample_input[: model.block_size])
-        sample_input = torch.tensor(
-            tokenizer.encode(sample_input[: model.block_size]), dtype=torch.long
-        )
+        # print("sample input: ", sample_input[: model.block_size])
+        # sample_input = torch.tensor(
+        #     tokenizer.encode(sample_input[: model.block_size]), dtype=torch.long
+        # )
 
-        get_baseline_score(model)
-        get_layer_output_histograms(
-            model,
+        get_baseline_score(tokenizer.vocab_size)
+        model.get_layer_output_histograms(
             save_affix="pretraining",
-            sample_input=sample_input,
             save_path=args["save_path"],
         )
-        plot_emb_weights(
-            model, save_affix="pretraining", plot_text=True, save_path=args["save_path"]
+        model.plot_emb_weights(
+            save_affix="pretraining",
+            plot_text=False,
+            save_path=args["save_path"],
+            tokenizer=tokenizer,
         )
         if args["model"] == "gpt":
-            plot_attn_heatmaps(
-                model,
+            model.plot_attn_heatmaps(
                 save_affix="pretraining",
-                sample_input=sample_input,
-                plot_text=True,
+                plot_text=False,
                 save_path=args["save_path"],
             )
 
@@ -227,21 +224,17 @@ if __name__ == "__main__":
         )
 
         save_loss_figures(train_losses, valid_losses, save_path=args["save_path"])
-        get_layer_output_histograms(
-            model,
+        model.get_layer_output_histograms(
             save_affix="results",
-            sample_input=sample_input,
             save_path=args["save_path"],
         )
-        plot_emb_weights(
-            model, save_affix="results", plot_text=True, save_path=args["save_path"]
+        model.plot_emb_weights(
+            save_affix="results", plot_text=False, save_path=args["save_path"]
         )
         if args["model"] == "gpt":
-            plot_attn_heatmaps(
-                model,
+            model.plot_attn_heatmaps(
                 save_affix="results",
-                sample_input=sample_input,
-                plot_text=True,
+                plot_text=False,
                 save_path=args["save_path"],
             )
 
