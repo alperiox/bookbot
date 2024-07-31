@@ -82,7 +82,7 @@ class CharTokenizer(Tokenizer):
             tokens.update(unique_chars)
 
         # define the vocabulary
-        self.vocabulary = list(tokens)
+        self.vocabulary = sorted(list(tokens))
         # define the vocab_size
         self.vocab_size = len(tokens) + len(self.special_tokens)
         # define the stoi and itos dictionaries
@@ -95,7 +95,7 @@ class CharTokenizer(Tokenizer):
         return
 
     def pad(self, sequences: list[list[int]], length: int) -> list[list[int]]:
-        """ pads the given list of sequences (a list of tokens) to the given length """
+        """pads the given list of sequences (a list of tokens) to the given length"""
         if not isinstance(sequences[0], list):
             sequences = [sequences]
 
@@ -107,7 +107,7 @@ class CharTokenizer(Tokenizer):
                 padded_seq = [self.special_tokens[self.BOS_TOKEN]] * (length - L) + s
             else:
                 padded_seq = s
-            
+
             padded_tokens.append(padded_seq)
 
         return padded_tokens
