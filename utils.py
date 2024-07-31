@@ -1,8 +1,40 @@
 import os
+from pathlib import Path
 
+import matplotlib.pyplot as plt
 import torch
 from torch.nn import functional as F
 from tqdm import tqdm
+
+
+def save_loss_figures(
+    train_losses: torch.Tensor, valid_losses: torch.Tensor, save_path: str = "artifacts"
+):
+    plt.figure(figsize=(10, 5))
+    plt.plot(train_losses.tolist(), label="train loss")
+    plt.plot(valid_losses.tolist(), label="valid loss")
+    plt.legend()
+    path = Path(save_path)
+    plt.savefig(path / "losses.png")
+    return
+
+
+def get_baseline_score(vocabulary_size):
+    """
+    Calculate the baseline loss for the model.
+
+    This function computes a baseline loss assuming uniform probability
+    distribution over the vocabulary.
+
+    Args:
+    model: The GPT model instance
+
+    Returns:
+    float: The baseline loss
+    """
+    baseline_loss = (-torch.log(torch.tensor(1 / vocabulary_size))).item()
+    print("BASELINE LOSS:", baseline_loss)
+    return baseline_loss
 
 
 def debug(func):
@@ -84,7 +116,10 @@ def train_loop(model, train_loader, test_loader, epochs, learning_rate, lrsche, 
         bar = tqdm(enumerate(train_loader), total=len(train_loader))
         # decay the learning rate if it's provided
         if lrsche:
-            if (epoch + 1) % int(epochs * 0.3) == 0:
+            n_epochs = int(epochs * 0.3)
+            if n_epochs == 0:
+                n_epochs = 1
+            if (epoch + 1) % n_epochs == 0:
                 lr = lr / 10
         print("========")
         print("TRAINING (epoch:%d/%d)" % (epoch + 1, epochs))
