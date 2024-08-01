@@ -66,13 +66,19 @@ class BaseLayer(metaclass=CombinedMeta):
                     self.__setattr__(attr_name, [a.to(device) for a in attr])
         return self
 
-    def train(self):
+    def train(self, log=False):
         for layer in self._layers:
             layer.training = True
+            if log:
+                layer.log_outputs = log
+        self.log_outputs = log
 
     def eval(self):
         for layer in self._layers:
             layer.training = False
+            if layer.log_outputs:
+                layer.log_outputs = False
+        self.log_outputs = False
 
 
 class Head(BaseLayer):
@@ -111,8 +117,8 @@ class Head(BaseLayer):
         # get the normalized affinities
         wei = F.softmax(wei, dim=-1)  # (B,T,T)
         # use the value vector and aggregate the results
-        self.out = wei @ v  # (B, T, hs)
-        return self.out
+        out = wei @ v  # (B, T, hs)
+        return out
 
     def parameters(self):
         return flatten_dict(
@@ -208,10 +214,10 @@ class MultiHeadAttentionConcat(BaseLayer):
         # calculate the outputs of the heads
         out = [h(x) for h in self.heads]  # list of (B, T, head_size)
         # just concatenate them all
-        self.out = torch.concat(out, -1)  # (B, T, head_size * num_heads)
+        out = torch.concat(out, -1)  # (B, T, head_size * num_heads)
         # apply the projection transformation
-        self.out = self.proj(self.out)
-        return self.out
+        out = self.proj(out)
+        return out
 
     def parameters(self):
         params = {}
@@ -236,8 +242,8 @@ class FeedForwardBlock(BaseLayer):
         )
 
     def __call__(self, x):
-        self.out = self.net(x)
-        return self.out
+        out = self.net(x)
+        return out
 
     def parameters(self):
         return self.net.parameters()
@@ -272,9 +278,9 @@ class DecoderTransformerBlock(BaseLayer):
         # just as in the paper.
         x = x + self.self_attn(self.ln1(x))
         x = x + self.ffwd_net(self.ln2(x))
-        self.out = x
+        out = x
 
-        return self.out
+        return out
 
     def parameters(self):
         return flatten_dict(
@@ -299,10 +305,10 @@ class Linear(BaseLayer):
     def __call__(self, x):
         self.x = x
         if self.has_bias:
-            self.out = x @ self.weight + self.bias
+            out = x @ self.weight + self.bias
         else:
-            self.out = x @ self.weight
-        return self.out
+            out = x @ self.weight
+        return out
 
     def parameters(self):
         params = {"weight": self.weight}
@@ -314,8 +320,8 @@ class Linear(BaseLayer):
 class Tanh(BaseLayer):
     def __call__(self, x):
         self.x = x
-        self.out = F.tanh(x)
-        return self.out
+        out = F.tanh(x)
+        return out
 
     def parameters(self):
         return {}
@@ -328,8 +334,8 @@ class Embedding(BaseLayer):
 
     def __call__(self, x):
         self.x = x
-        self.out = self.weight[x]
-        return self.out
+        out = self.weight[x]
+        return out
 
     def parameters(self):
         return flatten_dict({"weight": self.weight})
@@ -348,8 +354,8 @@ class LayerNorm(BaseLayer):
         xvar = x.var(1, keepdim=True)  # layers var
 
         xhat = (x - xmean) / torch.sqrt(xvar + self.eps)
-        self.out = self.gamma * xhat + self.beta
-        return self.out
+        out = self.gamma * xhat + self.beta
+        return out
 
     def parameters(self):
         return flatten_dict({"gamma": self.gamma, "beta": self.beta})
@@ -381,7 +387,7 @@ class BatchNorm1d(BaseLayer):
             xvar = self.running_var
 
         xhat = (x - xmean) / torch.sqrt(xvar + self.eps)
-        self.out = self.gamma * xhat + self.beta
+        out = self.gamma * xhat + self.beta
         # update the buffers
         if self.training:
             with torch.no_grad():
@@ -391,7 +397,7 @@ class BatchNorm1d(BaseLayer):
                 self.running_var = (
                     self.running_var * (1 - self.momentum) + xvar * self.momentum
                 )
-        return self.out
+        return out
 
     def parameters(self):
         return flatten_dict({"gamma": self.gamma, "beta": self.beta})
@@ -406,9 +412,9 @@ class LinearBlock(BaseLayer):
 
     def __call__(self, x):
         self.x = x
-        self.out = self.tanh(self.bn(self.linear(x)))
+        out = self.tanh(self.bn(self.linear(x)))
 
-        return self.out
+        return out
 
     def parameters(self):
         return flatten_dict(
@@ -418,8 +424,8 @@ class LinearBlock(BaseLayer):
 
 class Flatten(BaseLayer):
     def __call__(self, x: torch.tensor) -> torch.tensor:
-        self.out = x.view(x.size(0), -1)
-        return self.out
+        out = x.view(x.size(0), -1)
+        return out
 
     def parameters(self):
         return {}
@@ -432,10 +438,10 @@ class FlattenConsecutive(BaseLayer):
 
     def __call__(self, x):
         B, T, C = x.shape
-        self.out = x.view(B, T // self.n, C * self.n)
-        if self.out.shape[1] == 1:
-            self.out = self.out.squeeze(1)
-        return self.out
+        out = x.view(B, T // self.n, C * self.n)
+        if out.shape[1] == 1:
+            out = out.squeeze(1)
+        return out
 
     def parameters(self):
         return {}
@@ -447,12 +453,12 @@ class Sequential(BaseLayer):
         self.layers = layers
 
     def __call__(self, x):
-        self.out = x
+        out = x
         for layer in self.layers:
-            self.out = layer(self.out)
-            # print(f"{layer.__class__(BaseLayer).__name__:20s}:", self.out.shape)
+            out = layer(out)
+            # print(f"{layer.__class__(BaseLayer).__name__:20s}:", out.shape)
 
-        return self.out
+        return out
 
     def parameters(self):
         params = {}
@@ -514,14 +520,14 @@ class HierarchicalMLP(BaseLayer):
 
     def __call__(self, x, y=None):
         self.x = x
-        self.out = self.model(self.x)
+        out = self.model(self.x)
 
         if y is None:
             loss = None
         else:
-            loss = F.cross_entropy(self.out, y)
+            loss = F.cross_entropy(out, y)
 
-        return self.out, loss
+        return out, loss
 
     def add_special_token(self, key, val):
         self.special_tokens[key] = val
@@ -664,8 +670,8 @@ class MLP(BaseLayer):
         else:
             loss = F.cross_entropy(x, y)
 
-        self.out = x
-        return self.out, loss
+        out = x
+        return out, loss
 
     def add_special_token(self, key, val):
         self.special_tokens[key] = val
