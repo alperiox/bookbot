@@ -10,6 +10,10 @@ from tokenizers import CharTokenizer
 from utils import (
     get_baseline_score,
     load_artifact,
+    plot_aoc_ratio,
+    plot_grad2data_ratio,
+    plot_layer_grads,
+    plot_layer_outputs,
     save_artifacts,
     save_loss_figures,
     train_loop,
@@ -82,6 +86,12 @@ parser.add_argument(
     type=str,
     help="The device to train the models on. default: cpu",
     default="cpu",
+)
+parser.add_argument(
+    "--debug",
+    action="store_true",
+    help="Print debug statistics and save statistical plots on artifacts folder",
+    default=False,
 )
 args = parser.parse_args()
 args = vars(args)
@@ -191,29 +201,30 @@ if __name__ == "__main__":
         #     tokenizer.encode(sample_input[: model.block_size]), dtype=torch.long
         # )
 
-        get_baseline_score(tokenizer.vocab_size)
-        model.get_layer_output_histograms(
-            save_affix="pretraining",
-            save_path=args["save_path"],
-        )
-        model.plot_emb_weights(
-            save_affix="pretraining",
-            plot_text=False,
-            save_path=args["save_path"],
-            tokenizer=tokenizer,
-        )
-        if args["model"] == "gpt":
-            model.plot_attn_heatmaps(
+        if args["debug"]:
+            get_baseline_score(tokenizer.vocab_size)
+            model.get_layer_output_histograms(
+                save_affix="pretraining",
+                save_path=args["save_path"],
+            )
+            model.plot_emb_weights(
                 save_affix="pretraining",
                 plot_text=False,
                 save_path=args["save_path"],
+                tokenizer=tokenizer,
             )
+            if args["model"] == "gpt":
+                model.plot_attn_heatmaps(
+                    save_affix="pretraining",
+                    plot_text=False,
+                    save_path=args["save_path"],
+                )
 
-        print("VOCABULARY:")
-        print(tokenizer.vocabulary)
+            print("VOCABULARY:")
+            print(tokenizer.vocabulary)
 
         # train the model
-        train_losses, valid_losses = train_loop(
+        train_losses, valid_losses, ratios, means, stds = train_loop(
             model,
             train_loader,
             test_loader,
@@ -221,23 +232,29 @@ if __name__ == "__main__":
             learning_rate=args["lr"],
             lrsche=args["lrsche"],
             device=args["device"],
+            debug_stats=args["debug"],
         )
 
-        save_loss_figures(train_losses, valid_losses, save_path=args["save_path"])
-        model.get_layer_output_histograms(
-            save_affix="results",
-            save_path=args["save_path"],
-        )
-        model.plot_emb_weights(
-            save_affix="results", plot_text=False, save_path=args["save_path"]
-        )
-        if args["model"] == "gpt":
-            model.plot_attn_heatmaps(
+        if args["debug"]:
+            plot_layer_outputs(model)
+            plot_layer_grads(model)
+            plot_grad2data_ratio(model)
+            plot_aoc_ratio(ratios, model)
+
+            save_loss_figures(train_losses, valid_losses, save_path=args["save_path"])
+            model.get_layer_output_histograms(
                 save_affix="results",
-                plot_text=False,
                 save_path=args["save_path"],
             )
-
+            model.plot_emb_weights(
+                save_affix="results", plot_text=False, save_path=args["save_path"]
+            )
+            if args["model"] == "gpt":
+                model.plot_attn_heatmaps(
+                    save_affix="results",
+                    plot_text=False,
+                    save_path=args["save_path"],
+                )
         # save the results
         save_artifacts(
             model=model,
