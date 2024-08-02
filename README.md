@@ -77,24 +77,22 @@ The generation will run until the wanted character length is matched.
 
 ## Further plans
 
-
-
-- [ ] Implement debugging tools to analyze the neural network's training performance. (more like useful graphs and statistics.)
+- [x] Implement debugging tools to analyze the neural network's training performance. (more like useful graphs and statistics.)
   - [x] graphs to check out the layer outputs' distributions.
         layer output distributions (with extra information about mean, std and the distribution plot)
-  - [ ] graphs to check the gradient flow
-    - [ ] layer gradient means
-    - [ ] layer gradient stds
-    - [ ] ratio of amount of change in the parameters given the weights
+  - [x] graphs to check the gradient flow
+    - [x] layer gradient means
+    - [x] layer gradient stds
+    - [x] ratio of amount of change in the parameters given the weights
           we multiply the learning rate with the layer's gradient's std and divide it by
           parameters' std. this ratio will be higher if gradient std is larger (grads vary too much from the mean)
           and the params are smaller in comparison.
-    - [ ] layer grad distributions (with extra information about mean, std and the distribution plot)
-    - [ ] ratio of the gradient of a specific layer to its input
+    - [x] layer grad distributions (with extra information about mean, std and the distribution plot)
+    - [x] ratio of the gradient of a specific layer to its input
           so if the ratio is too high, it means that the gradients are too high wtr to the input
           and we actually want constant but smaller updates throughout the network to not miss any local minimas etc
-    - [ ] ratio of the amount of change vs the weights, the stats should be saved in L7 here
-  - [ ] summary for the training
+    - [x] ratio of the amount of change vs the weights, the stats should be saved in L7 here
+  - [x] summary for the training
 - [ ] More modeling options such as LSTMs, RNNs, and Transformer-based architectures.
   - [x] Wavenet? (implemented the hierarchical architecture)
   - [x] GPT
