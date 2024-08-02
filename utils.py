@@ -252,7 +252,8 @@ def train_loop(
         print("TRAINING (epoch:%d/%d)" % (epoch + 1, epochs))
         ratios, means_list, stds_list = [], [], []
 
-        model.train(log=debug_stats)
+        model.train()
+        model.start_debug()
         for i, (x, y) in bar:
             x, y = x.to(device), y.to(device)
             # get the logits and the loss
@@ -295,6 +296,7 @@ def train_loop(
 
         print("TESTING")
         model.eval()
+        model.stop_debug()
         bar = tqdm(enumerate(test_loader), total=len(test_loader))
         for i, (x, y) in bar:
             with torch.no_grad():

@@ -69,16 +69,26 @@ class BaseLayer(metaclass=CombinedMeta):
     def train(self, log=False):
         for layer in self._layers:
             layer.training = True
-            if log:
-                layer.log_outputs = log
-        self.log_outputs = log
 
     def eval(self):
         for layer in self._layers:
             layer.training = False
-            if layer.log_outputs:
-                layer.log_outputs = False
+
+    def start_debug(self):
+        self.log_outputs = True
+        for layer in self._layers:
+            layer.start_debug()
+            if isinstance(layer, Sequential):
+                for l in layer.layers:
+                    l.start_debug()
+
+    def stop_debug(self):
         self.log_outputs = False
+        for layer in self._layers:
+            layer.stop_debug()
+            if isinstance(layer, Sequential):
+                for l in layer.layers:
+                    l.stop_debug()
 
 
 class Head(BaseLayer):
@@ -493,6 +503,7 @@ class HierarchicalMLP(BaseLayer):
         self.n_layers = n_layers
 
         self.special_tokens = {}
+
         self.layers = [
             Embedding(vocab_size, n_embed),
             FlattenConsecutive(n_consecutive),
@@ -574,7 +585,9 @@ class HierarchicalMLP(BaseLayer):
                 0, self.vocab_size - 1, (1, self.block_size), dtype=torch.long
             )
         self.eval()
+        self.start_debug()
         self(sample_input)
+        self.stop_debug()
         outs = []
         titles = []
 
@@ -729,6 +742,7 @@ class MLP(BaseLayer):
                 0, self.vocab_size - 1, (1, self.block_size), dtype=torch.long
             )
         self.eval()
+        self.start_debug()
         self(sample_input)
 
         layer_counts = {}
@@ -758,6 +772,7 @@ class MLP(BaseLayer):
             ax.set_title(title)
             ax.hist(layer.out.view(-1).tolist(), 50)
         plt.savefig(f"{save_path}/layer_output_histograms_{save_affix}.png")
+        self.stop_debug()
         self.train()
 
         return
