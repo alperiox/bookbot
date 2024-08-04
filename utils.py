@@ -242,10 +242,8 @@ def train_loop(
         # set up the tqdm bar
         bar = tqdm(enumerate(train_loader), total=len(train_loader))
         # decay the learning rate if it's provided
-        if lrsche:
-            n_epochs = int(epochs * 0.3)
-            if n_epochs == 0:
-                n_epochs = 1
+        if lrsche and epochs > 1:
+            n_epochs = round(epochs * 0.33)
             if (epoch + 1) % n_epochs == 0:
                 lr = lr / 10
         print("========")
@@ -293,7 +291,7 @@ def train_loop(
             train_losses[epoch] += loss
             desc_text = f"({epoch*train_loader.batch_size + i*train_loader.batch_size}/{len(train_loader.dataset)}) (lr={lr:.4f}): loss {train_losses[epoch]/(i+1):.4f}"
             bar.set_description(desc_text)
-
+        train_losses[epoch] /= len(train_loader)
         print("TESTING")
         model.eval()
         model.stop_debug()
@@ -308,6 +306,7 @@ def train_loop(
             valid_losses[epoch] += loss.item()
             desc_text = f"({epoch*test_loader.batch_size + i*test_loader.batch_size}/{len(test_loader.dataset)}): loss {valid_losses[epoch]/(i+1):.4f}"
             bar.set_description(desc_text)
+        valid_losses[epoch] /= len(test_loader)
 
     model.to("cpu")  # move the model to the cpu
     # return the losses.
