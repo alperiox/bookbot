@@ -5,162 +5,14 @@ from pathlib import Path
 import matplotlib.pyplot as plt
 import torch
 from sklearn.decomposition import PCA
+from torch import nn
 from torch.nn import functional as F
 
 from tokenizers import Tokenizer
-from utils import debug, flatten_dict
+from utils import flatten_dict
 
 
-# a simple metaclass that'd let us collect the defined layers and their parameters
-class Meta(type):
-    # now all the new subclasses will have their `__call__` methods wrapped in `debug` decorator.
-    def __new__(cls, name, bases, attrs):
-        if "__call__" in attrs:
-            attrs["__call__"] = debug(attrs["__call__"])
-
-        return super().__new__(cls, name, bases, attrs)
-
-    def __call__(cls, *args, **kwargs):
-        obj = super().__call__(*args, **kwargs)
-        obj._collect_layers()
-        return obj
-
-
-class CombinedMeta(Meta, ABC):
-    pass
-
-
-class BaseLayer(metaclass=CombinedMeta):
-    @abstractmethod
-    def __init__(self, log_outputs=False):
-        self.out = None
-        self.log_outputs = log_outputs
-
-    @abstractmethod
-    def __call__(self, x) -> tuple[torch.Tensor, torch.Tensor | None] | torch.Tensor:
-        pass
-
-    @abstractmethod
-    def parameters(self) -> dict[str, torch.Tensor]:
-        pass
-
-    def _collect_layers(self):
-        layers = []
-        for attr_name, attr in vars(
-            self
-        ).items():  # loop through every attribute defined in the object
-            # all my layers will be defined as BaseLayer, so maybe I can use that as a distinctive condition
-            if isinstance(attr, BaseLayer):
-                layers.append(attr)
-
-            elif isinstance(attr, list):
-                if all(isinstance(e, BaseLayer) for e in attr):
-                    layers.extend(attr)
-        self._layers = layers
-        return
-
-    def to(self, device):
-        attrs = vars(self)
-        for attr_name in vars(self):
-            attr = attrs[attr_name]
-            self.__to(device, attr, attr_name)
-
-        return self
-
-    def __to(self, device, attr, attr_name) -> None:
-        # move the given attribute along with it's weights to the given device
-        # if it's a tensor, check if the model is in the debug mode
-        # if it's in the debug mode, then we should check if it has an output attached to it
-        # and if that output has any grads on it
-
-        if isinstance(attr, BaseLayer):
-            if self.log_outputs:  # -- if the model is in the debug mode
-                if hasattr(attr, "out"):  # if it has a saved output
-                    layer_output = attr.out
-                    if isinstance(
-                        layer_output, tuple
-                    ):  # if the layer output is a tuple (aka. is a model output of (tensor, loss) )
-                        out, loss = layer_output
-                        grad = out.grad  # grad might
-
-                        if (
-                            loss is not None
-                        ):  # grad is not always calculated but one may want that too.
-                            loss = loss.detach().clone().to(device)
-
-                        if grad is not None:
-                            grad = grad.detach().clone().to(device)
-
-                        out = (out.detach().clone().to(device), loss)
-                        out[0].grad = grad
-
-                        moved_attr = attr.to(device)
-
-                        moved_attr.out = out
-
-                    elif isinstance(
-                        layer_output, torch.Tensor
-                    ):  # if it's just a tensor, then it's a layer output such as the Linear's.
-                        out = layer_output.detach().clone().to(device)
-                        grad = layer_output.grad
-
-                        if grad is not None:  #
-                            grad = grad.detach().clone().to(device)
-
-                        moved_attr = attr.to(device)
-                        moved_attr.out = out
-                        moved_attr.out.grad = grad
-
-                    else:
-                        raise NotImplementedError(
-                            "Layer's `out` can only be a tuple of (activation (torch.Tensor), loss (torch.Tensor | None)) or just activation (torch.Tensor)"
-                        )
-
-                else:
-                    moved_attr = attr.to(device)
-            else:  # if it's not in the debug mode, then we won't need the layer outputs and it's gradients.
-                moved_attr = attr.to(device)
-
-        elif isinstance(attr, torch.Tensor):
-            # we can move it normally
-            moved_attr = attr.to(device)
-
-        elif isinstance(attr, list):
-            if all(isinstance(a, BaseLayer) for a in attr):
-                moved_attr = [a.to(device) for a in attr]
-
-        else:
-            moved_attr = attr
-
-        # finally set the attribute
-        self.__setattr__(attr_name, moved_attr)
-
-    def train(self):
-        for layer in self._layers:
-            layer.training = True
-
-    def eval(self):
-        for layer in self._layers:
-            layer.training = False
-
-    def start_debug(self):
-        self.log_outputs = True
-        for layer in self._layers:
-            layer.start_debug()
-            if isinstance(layer, Sequential):
-                for layer in layer.layers:
-                    layer.start_debug()
-
-    def stop_debug(self):
-        self.log_outputs = False
-        for layer in self._layers:
-            layer.stop_debug()
-            if isinstance(layer, Sequential):
-                for layer in layer.layers:
-                    layer.stop_debug()
-
-
-class Head(BaseLayer):
+class Head(nn.Module):
     """one head of self-attention"""
 
     def __init__(self, n_in, n_head, context_length):
@@ -176,9 +28,11 @@ class Head(BaseLayer):
         self.value = Linear(n_in, n_head, bias=False)  # (n_in, n_head)
         # lower triangle matrix to just aggregate the previous context
         # as we try to predict the next token.
-        self.tril = torch.tril(torch.ones(context_length, context_length))
+        self.register_buffer(
+            "tril", torch.tril(torch.ones(context_length, context_length))
+        )
 
-    def __call__(self, x):
+    def forward(self, x):
         B, T, C = x.shape
         # every token will have a key, query and value vector
         # we will then calculate the dot products of all the keys and queries
@@ -199,17 +53,8 @@ class Head(BaseLayer):
         out = wei @ v  # (B, T, hs)
         return out
 
-    def parameters(self):
-        return flatten_dict(
-            {
-                "key": self.key.parameters(),
-                "query": self.query.parameters(),
-                "value": self.value.parameters(),
-            }
-        )
 
-
-class MultiHeadAttention(BaseLayer):
+class MultiHeadAttention(nn.Module):
     """implements multi-headed masked self-attention using tensor operations"""
 
     def __init__(self, num_heads, n_embd, head_size, block_size):
@@ -219,16 +64,18 @@ class MultiHeadAttention(BaseLayer):
         self.head_size = head_size
         self.block_size = block_size
 
-        self.key = torch.randn(num_heads, n_embd, head_size)
-        self.query = torch.randn(num_heads, n_embd, head_size)
-        self.value = torch.randn(num_heads, n_embd, head_size)
+        self.key = nn.Parameter(torch.randn(num_heads, n_embd, head_size))
+        self.query = nn.Parameter(torch.randn(num_heads, n_embd, head_size))
+        self.value = nn.Parameter(torch.randn(num_heads, n_embd, head_size))
 
         self.proj = Linear(n_embd, n_embd)
 
         # (B, T, n_embd) x (num_heads, n_embd, head_size) --> (B, num_heads, T, head_size)
-        self.tril = torch.tril(torch.ones(num_heads, block_size, block_size))
+        self.register_buffer(
+            "tril", torch.tril(torch.ones(num_heads, block_size, block_size))
+        )
 
-    def __call__(self, x):
+    def forward(self, x):
         """
         x: (B, T, n_embd) tensor
 
@@ -266,17 +113,8 @@ class MultiHeadAttention(BaseLayer):
 
         return out
 
-    def parameters(self):
-        params = {
-            "key": self.key,
-            "query": self.query,
-            "value": self.value,
-        }
-        params["proj"] = self.proj.parameters()
-        return flatten_dict(params)
 
-
-class MultiHeadAttentionConcat(BaseLayer):
+class MultiHeadAttentionConcat(nn.Module):
     """multi-head self-attention that'll be used in GPT implementation"""
 
     def __init__(self, num_head, n_in, head_size, context_length):
@@ -289,7 +127,7 @@ class MultiHeadAttentionConcat(BaseLayer):
         # residual pathway again
         self.proj = Linear(n_in, n_in)
 
-    def __call__(self, x):
+    def forward(self, x):
         # calculate the outputs of the heads
         out = [h(x) for h in self.heads]  # list of (B, T, head_size)
         # just concatenate them all
@@ -298,15 +136,8 @@ class MultiHeadAttentionConcat(BaseLayer):
         out = self.proj(out)
         return out
 
-    def parameters(self):
-        params = {}
-        for ix, h in enumerate(self.heads):
-            params[f"head{ix}"] = h.parameters()
-        params["proj"] = self.proj.parameters()
-        return flatten_dict(params)
 
-
-class FeedForwardBlock(BaseLayer):
+class FeedForwardBlock(nn.Module):
     def __init__(self, n_hidden):
         super().__init__()
         # a simple feed-forward network at the end of the
@@ -320,23 +151,17 @@ class FeedForwardBlock(BaseLayer):
             ]
         )
 
-    def __call__(self, x):
+    def forward(self, x):
         out = self.net(x)
         return out
 
-    def parameters(self):
-        return self.net.parameters()
 
-
-class ReLU(BaseLayer):
-    def __call__(self, x):
+class ReLU(nn.Module):
+    def forward(self, x):
         return (x > 0) * x
 
-    def parameters(self):
-        return {}
 
-
-class DecoderTransformerBlock(BaseLayer):
+class DecoderTransformerBlock(nn.Module):
     def __init__(self, num_heads, n_hidden, context_length):
         super().__init__()
         # using multiple heads will let us to provide more
@@ -352,7 +177,7 @@ class DecoderTransformerBlock(BaseLayer):
         self.ln1 = LayerNorm(n_hidden)
         self.ln2 = LayerNorm(n_hidden)
 
-    def __call__(self, x):
+    def forward(self, x):
         # add the residual connections and normalize given inputs
         # just as in the paper.
         x = x + self.self_attn(self.ln1(x))
@@ -361,27 +186,17 @@ class DecoderTransformerBlock(BaseLayer):
 
         return out
 
-    def parameters(self):
-        return flatten_dict(
-            {
-                "layernorm1": self.ln1.parameters(),
-                "self_attn": self.self_attn.parameters(),
-                "layernorm2": self.ln2.parameters(),
-                "ffwd_net": self.ffwd_net.parameters(),
-            }
-        )
 
-
-class Linear(BaseLayer):
+class Linear(nn.Module):
     def __init__(self, n_in, n_out, bias=True):
         super().__init__()
-        self.weight = torch.randn(n_in, n_out) / n_in**0.5
+        self.weight = nn.Parameter(torch.randn(n_in, n_out) / n_in**0.5)
 
         self.has_bias = bias
         if self.has_bias:
-            self.bias = torch.zeros(n_out)
+            self.bias = nn.Parameter(torch.zeros(n_out))
 
-    def __call__(self, x):
+    def forward(self, x):
         self.x = x
         if self.has_bias:
             out = x @ self.weight + self.bias
@@ -389,46 +204,34 @@ class Linear(BaseLayer):
             out = x @ self.weight
         return out
 
-    def parameters(self):
-        params = {"weight": self.weight}
-        if self.has_bias:
-            params["bias"] = self.bias
-        return flatten_dict(params)
 
-
-class Tanh(BaseLayer):
-    def __call__(self, x):
+class Tanh(nn.Module):
+    def forward(self, x):
         self.x = x
         out = F.tanh(x)
         return out
 
-    def parameters(self):
-        return {}
 
-
-class Embedding(BaseLayer):
+class Embedding(nn.Module):
     def __init__(self, n_vocab, n_embed):
         super().__init__()
-        self.weight = torch.randn(n_vocab, n_embed)
+        self.weight = nn.Parameter(torch.randn(n_vocab, n_embed))
 
-    def __call__(self, x):
+    def forward(self, x):
         self.x = x
         out = self.weight[x]
         return out
 
-    def parameters(self):
-        return flatten_dict({"weight": self.weight})
 
-
-class LayerNorm(BaseLayer):
+class LayerNorm(nn.Module):
     def __init__(self, dim, eps=1e-5):
         super().__init__()
         self.eps = eps
         # parameters to be trained with backprop
-        self.gamma = torch.ones(dim)
-        self.beta = torch.zeros(dim)
+        self.gamma = nn.Parameter(torch.ones(dim))
+        self.beta = nn.Parameter(torch.zeros(dim))
 
-    def __call__(self, x):
+    def forward(self, x):
         xmean = x.mean(1, keepdim=True)  # layers mean
         xvar = x.var(1, keepdim=True)  # layers var
 
@@ -436,24 +239,21 @@ class LayerNorm(BaseLayer):
         out = self.gamma * xhat + self.beta
         return out
 
-    def parameters(self):
-        return flatten_dict({"gamma": self.gamma, "beta": self.beta})
 
-
-class BatchNorm1d(BaseLayer):
+class BatchNorm1d(nn.Module):
     def __init__(self, dim, eps=1e-5, momentum=0.1):
         super().__init__()
         self.eps = eps
         self.momentum = momentum
         self.training = True
         # parameters to be trained with backprop
-        self.gamma = torch.ones(dim)
-        self.beta = torch.zeros(dim)
+        self.gamma = nn.Parameter(torch.ones(dim))
+        self.beta = nn.Parameter(torch.zeros(dim))
         # buffers, trained with a running `momentum update`
-        self.running_mean = torch.zeros(dim)
-        self.running_var = torch.ones(dim)
+        self.register_buffer("running_mean", torch.zeros(dim))
+        self.register_buffer("running_var", torch.ones(dim))
 
-    def __call__(self, x):
+    def forward(self, x):
         if self.training:
             if x.ndim == 2:
                 dim = 0
@@ -481,84 +281,54 @@ class BatchNorm1d(BaseLayer):
                 )
         return out
 
-    def parameters(self):
-        return flatten_dict({"gamma": self.gamma, "beta": self.beta})
 
-
-class LinearBlock(BaseLayer):
+class LinearBlock(nn.Module):
     def __init__(self, n_in, n_out):
         super().__init__()
         self.linear = Linear(n_in, n_out)
         self.bn = BatchNorm1d(n_out)
         self.tanh = Tanh()
 
-    def __call__(self, x):
+    def forward(self, x):
         self.x = x
         out = self.tanh(self.bn(self.linear(x)))
 
         return out
 
-    def parameters(self):
-        return flatten_dict(
-            {"linear": self.linear.parameters(), "batchnorm": self.bn.parameters()}
-        )
 
-
-class Flatten(BaseLayer):
-    def __call__(self, x: torch.Tensor) -> torch.Tensor:
+class Flatten(nn.Module):
+    def forward(self, x: torch.Tensor) -> torch.Tensor:
         out = x.view(x.size(0), -1)
         return out
 
-    def parameters(self):
-        return {}
 
-
-class FlattenConsecutive(BaseLayer):
+class FlattenConsecutive(nn.Module):
     def __init__(self, n):
         super().__init__()
         self.n = n  # sum n consecutive elements
 
-    def __call__(self, x):
+    def forward(self, x):
         B, T, C = x.shape
         out = x.view(B, T // self.n, C * self.n)
         if out.shape[1] == 1:
             out = out.squeeze(1)
         return out
 
-    def parameters(self):
-        return {}
 
-
-class Sequential(BaseLayer):
+class Sequential(nn.Module):
     def __init__(self, layers):
         super().__init__()
-        self.layers = layers
+        self.layers = nn.ModuleList(layers)
 
-    def __call__(self, x):
+    def forward(self, x):
         out = x
         for layer in self.layers:
             out = layer(out)
 
         return out
 
-    def parameters(self):
-        params = {}
-        layernames = [layer.__class__.__name__.lower() for layer in self.layers]
-        counts = {}
-        for name in layernames:
-            counts[name] = counts.get(name, 0) + 1
 
-        for name, layer in zip(layernames, self.layers):
-            ix = counts[name] - 1
-            counts[name] -= 1
-
-            layername = layer.__class__.__name__.lower()
-            params[f"{layername}{ix}"] = layer.parameters()
-
-        return flatten_dict(params)
-
-
-class HierarchicalMLP(BaseLayer):
+class HierarchicalMLP(nn.Module):
     def __init__(
         self, vocab_size, n_consecutive, n_embed, n_hidden, block_size, n_layers=4
     ):
@@ -566,12 +336,12 @@ class HierarchicalMLP(BaseLayer):
             n_consecutive**n_layers == block_size
         ), "`n_consecutive^n_layers` must be equal to `block_size` because of `FlattenConsecutive`!"
         super().__init__()
-        self.vocab_size: int = vocab_size
-        self.n_consecutive: int = n_consecutive
-        self.n_embed: int = n_embed
-        self.n_hidden: int = n_hidden
-        self.block_size: int = block_size
-        self.n_layers: int = n_layers
+        self.vocab_size = vocab_size
+        self.n_consecutiv = n_consecutive
+        self.n_embed = n_embed
+        self.n_hidden = n_hidden
+        self.block_size = block_size
+        self.n_layers = n_layers
 
         self.special_tokens = {}
 
@@ -600,7 +370,7 @@ class HierarchicalMLP(BaseLayer):
         self.model = Sequential(self.layers)
         self.block_size = block_size
 
-    def __call__(self, x, y=None):
+    def forward(self, x, y=None):
         self.x = x
         out = self.model(self.x)
 
@@ -610,20 +380,6 @@ class HierarchicalMLP(BaseLayer):
             loss = F.cross_entropy(out, y)
 
         return out, loss
-
-    def add_special_token(self, key, val):
-        self.special_tokens[key] = val
-
-    def eval(self):
-        for layer in self.layers:
-            layer.training = False
-
-    def train(self):
-        for layer in self.layers:
-            layer.training = True
-
-    def parameters(self):
-        return self.model.parameters()
 
     def generate(self, idx, max_new_tokens):
         if idx.shape[0] != 1:
@@ -717,7 +473,7 @@ class HierarchicalMLP(BaseLayer):
         return
 
 
-class MLP(BaseLayer):
+class MLP(nn.Module):
     def __init__(self, vocab_size, block_size, n_embed, n_hidden, n_layers=4):
         super().__init__()
         self.layers = []
@@ -742,7 +498,7 @@ class MLP(BaseLayer):
 
         self.net = Sequential(self.layers)
 
-    def __call__(self, x, y=None):
+    def forward(self, x, y=None):
         self.x = x  # (B, T)
 
         x = self.embedding(x)
@@ -756,31 +512,6 @@ class MLP(BaseLayer):
 
         out = x
         return out, loss
-
-    def add_special_token(self, key, val):
-        self.special_tokens[key] = val
-
-    def eval(self):
-        for layer in self.layers:
-            if isinstance(layer, BatchNorm1d):
-                layer.training = False
-            elif isinstance(layer, LinearBlock):
-                layer.bn.training = False
-
-    def train(self):
-        for layer in self.layers:
-            if isinstance(layer, BatchNorm1d):
-                layer.training = True
-            elif isinstance(layer, LinearBlock):
-                layer.bn.training = True
-
-    def parameters(self):
-        return flatten_dict(
-            {
-                "embedding": self.embedding.parameters(),
-                "sequential": self.net.parameters(),
-            }
-        )
 
     def generate(self, idx, max_new_tokens):
         if idx.shape[0] != 1:
@@ -883,7 +614,7 @@ class MLP(BaseLayer):
         return
 
 
-class GPT(BaseLayer):
+class GPT(nn.Module):
     def __init__(self, n_embd, vocab_size, num_heads, num_blocks, block_size):
         super().__init__()
         self.n_embd = n_embd
@@ -903,7 +634,7 @@ class GPT(BaseLayer):
         self.ln_f = LayerNorm(n_embd)
         self.ln_head = Linear(n_embd, vocab_size)
 
-    def __call__(self, idx, targets=None) -> tuple[torch.Tensor, torch.Tensor | None]:
+    def forward(self, idx, targets=None) -> tuple[torch.Tensor, torch.Tensor | None]:
         # inputs and targets are (B, T) shaped
         B, T = idx.shape
 
@@ -922,17 +653,6 @@ class GPT(BaseLayer):
             loss = F.cross_entropy(logits, targets)
 
         return logits, loss
-
-    def parameters(self):
-        return flatten_dict(
-            {
-                "token_embeddings_table": self.token_embeddings_table.parameters(),
-                "pos_embeddings_table": self.pos_embeddings_table.parameters(),
-                "blocks": self.blocks.parameters(),
-                "linear_final": self.ln_f.parameters(),
-                "language_head": self.ln_head.parameters(),
-            }
-        )
 
     def generate(self, idx, max_new_tokens):
         # idx is (B, T) array where T is the context length

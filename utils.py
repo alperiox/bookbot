@@ -7,8 +7,6 @@ from torch.nn import functional as F
 from torch.utils.data import DataLoader
 from tqdm import tqdm
 
-from optimizers import SGD
-
 
 def plot_aoc_ratio(ud, model, save_path: str = "artifacts"):
     """
@@ -173,34 +171,6 @@ def get_baseline_score(vocabulary_size):
     return baseline_loss
 
 
-def debug(func):
-    """a decorator to save the object's __call__ outputs to the `out` attribute."""
-
-    def wrapper(obj, *args, **kwargs):
-        out = func(obj, *args, **kwargs)
-        if hasattr(obj, "log_outputs"):
-            if obj.log_outputs:
-                obj.out = out
-        else:
-            pass
-        return out
-
-    return wrapper
-
-
-def flatten_dict(d: dict) -> dict:
-    flattened_dict = {}
-    for k, v in d.items():
-        if isinstance(v, dict):
-            flattened_dict.update(
-                {f"{k}.{key}": val for key, val in flatten_dict(v).items()}
-            )
-        else:
-            flattened_dict[k] = v
-
-    return flattened_dict
-
-
 def load_artifact(save_path, name):
     artifact = torch.load(f"{save_path}/{name}.pt")
     return artifact
@@ -225,38 +195,27 @@ def calc_debug_stats(
     return ratio, means, stds
 
 
-def retain_grads(layer):
-    layer.out.retain_grad()
-    for l in layer._layers:
-        retain_grads(l)
-
-
 def train_step(
-    model, parameters, optimizer, lr, x, y, device, debug_stats
-) -> tuple[float, list[float] | None, list[float] | None, list[float] | None]:
+    model: torch.nn.Module,
+    x: torch.Tensor,
+    y: torch.Tensor,
+    optimizer: torch.optim.Optimizer,
+    device: str,
+) -> float:
     """optimizes the model weights using the given optimizer object for a batch"""
     x, y = x.to(device), y.to(device)
 
     # get the logits and the loss
-    logits, loss = model(x, y)
+    _, loss = model(x, y)
     # optimize the model parameters and log the gradients if needed
-    if debug_stats:
-        for layer in model._layers:
-            retain_grads(layer)
 
     optimizer.zero_grad()  # cast the grads to None
-
     # backward pass
     loss.backward()
 
-    with torch.no_grad():
-        optimizer.step(lr)
+    optimizer.step()
 
-        ratio, means, stds = (
-            calc_debug_stats(lr, parameters) if debug_stats else (None, None, None)
-        )
-
-    return loss.item(), ratio, means, stds
+    return loss.item()
 
 
 def evaluate(model, loader, device, progress_bar=True):
@@ -273,10 +232,10 @@ def evaluate(model, loader, device, progress_bar=True):
             x, y = x.to(device), y.to(device)
             # same as above, don't calculate the gradients this time
             # and just calculate the loss
-            logits, loss = model(x, y)
+            _, loss = model(x, y)  # _: logits
         # statistics and logging, again.
         valid_losses[i] = loss
-        if progress_bar:
+        if isinstance(bar, tqdm):
             desc_text = (
                 f"({(i+1)}/{len(loader)}): loss {valid_losses.sum()/((i+1)):.4f}"
             )
@@ -292,9 +251,9 @@ def train_loop(
     learning_rate: float,
     lrsche: bool,
     device: str,
-    debug_stats: bool = True,
     max_steps: int | None = None,
     epochs: int | None = None,
+    optimizer: torch.optim.Optimizer | None = None,
 ):
     """
     Trains the given model using the provided data loaders.
@@ -306,30 +265,33 @@ def train_loop(
     learning_rate (float): the learning rate that'll be used to scale the gradients in the optimization phase
     lrsche (bool): whether apply a learning rate decay or not
     """
+    if (max_steps is None) and (epochs is None):
+        raise ValueError("Both `max_steps` and `epochs` are none!")
+
     assert not (
         max_steps and epochs
     ), "You cannot pass both `max_steps` and `epochs` at the same time!"
+
     # allow the model parameters to calculate gradients
-
-    # the initial learning_rate
-    lr = learning_rate
-
     model.to(device)
 
-    parameters = model.parameters()
-    for k, p in parameters.items():
-        p.requires_grad = True
+    if optimizer is None:
+        optimizer = torch.optim.SGD(model.parameters(), lr=learning_rate)
 
-    optimizer = SGD()
-    optimizer.register_params(parameters)
+    train_batch_size: int = (
+        train_loader.batch_size if isinstance(train_loader.batch_size, int) else 1
+    )
+    test_batch_size: int = (
+        test_loader.batch_size if isinstance(test_loader.batch_size, int) else 1
+    )
 
-    ratios, means_list, stds_list = [], [], []
+    num_training_samples = len(train_loader.dataset)
 
     # training loop
     if epochs:
         # loss vectors
-        train_losses = torch.zeros(epochs)
-        valid_losses = torch.zeros(epochs)
+        train_losses: torch.Tensor = torch.zeros(epochs)
+        valid_losses: torch.Tensor = torch.zeros(epochs)
 
         for epoch in range(epochs):
             # set up the tqdm bar
@@ -338,27 +300,21 @@ def train_loop(
             if lrsche and epochs > 1:
                 n_epochs = round(epochs * 0.33)
                 if (epoch + 1) % n_epochs == 0:
-                    lr = lr / 10
+                    learning_rate = learning_rate / 10
             print("========")
             print("TRAINING (epoch:%d/%d)" % (epoch + 1, epochs))
 
             model.train()
-            model.start_debug()
             for i, (x, y) in bar:
-                loss, ratio, means, stds = train_step(
-                    model, parameters, optimizer, lr, x, y, device, debug_stats
-                )
-                ratios.append(ratio)
-                means_list.append(means)
-                stds_list.append(stds)
+                loss = train_step(model, x, y, optimizer, device)
+
                 # statistics and logging
                 train_losses[epoch] += loss
-                desc_text = f"({epoch*train_loader.batch_size + i*train_loader.batch_size}/{len(train_loader.dataset)}) (lr={lr:.4f}): loss {train_losses[epoch]/(i+1):.4f}"
+                desc_text = f"({epoch*train_batch_size + i*train_batch_size}/{num_training_samples}) (lr={learning_rate:.4f}): loss {train_losses[epoch]/(i+1):.4f}"
                 bar.set_description(desc_text)
 
             train_losses[epoch] /= len(train_loader)
             model.eval()
-            model.stop_debug()
             # valid_loss = evaluate(model, test_loader, device)
             # valid_losses[epoch] = valid_loss
 
@@ -373,45 +329,37 @@ def train_loop(
         train_losses = torch.zeros(max_steps)
         valid_losses = torch.zeros(max_steps)
         batch_size = train_loader.batch_size
+        batch_size = batch_size if isinstance(batch_size, int) else 1
         total = 0
         frac = round(max_steps * 0.33)
         valid_loss = 0
 
         model.train()
-        if debug_stats:
-            model.start_debug()
-
         for ix, (x, y) in enumerate(train_loader):
             if ix == max_steps:
                 break
 
-            loss, ratio, means, stds = train_step(
-                model, parameters, optimizer, lr, x, y, device, debug_stats
-            )
-
-            ratios.append(ratio)
-            means_list.append(means)
-            stds_list.append(stds)
+            loss = train_step(model, x, y, optimizer, device)
 
             bar.update(1)
             total += batch_size
 
             train_losses[ix] = loss
 
-            desc_text = f"(lr={lr:.4f}): loss {train_losses.sum()/(ix+1):.4f} val_loss {valid_loss:.4f}"
+            desc_text = f"(lr={learning_rate:.4f}): loss {train_losses.sum()/(ix+1):.4f} val_loss {valid_loss:.4f}"
             bar.set_description(desc_text)
 
             if frac > 1 and ((ix + 1) % frac == 0):
                 model.eval()
-                model.stop_debug()
                 valid_loss = evaluate(model, test_loader, device, progress_bar=False)
                 model.train()
-                if debug_stats:
-                    model.start_debug()
 
         model.to("cpu")
 
         bar.close()
 
+    else:
+        train_losses, valid_losses = torch.tensor([]), torch.tensor([])
+
     # return the losses.
-    return train_losses, valid_losses, ratios, means_list, stds_list
+    return train_losses, valid_losses
