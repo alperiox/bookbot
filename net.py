@@ -63,12 +63,77 @@ class BaseLayer(metaclass=CombinedMeta):
         attrs = vars(self)
         for attr_name in vars(self):
             attr = attrs[attr_name]
-            if isinstance(attr, BaseLayer) or isinstance(attr, torch.Tensor):
-                self.__setattr__(attr_name, attr.to(device))
-            elif isinstance(attr, list):
-                if all(isinstance(a, BaseLayer) for a in attr):
-                    self.__setattr__(attr_name, [a.to(device) for a in attr])
+            self.__to(device, attr, attr_name)
+
         return self
+
+    def __to(self, device, attr, attr_name) -> None:
+        # move the given attribute along with it's weights to the given device
+        # if it's a tensor, check if the model is in the debug mode
+        # if it's in the debug mode, then we should check if it has an output attached to it
+        # and if that output has any grads on it
+
+        if isinstance(attr, BaseLayer):
+            if self.log_outputs:  # -- if the model is in the debug mode
+                if hasattr(attr, "out"):  # if it has a saved output
+                    layer_output = attr.out
+                    if isinstance(
+                        layer_output, tuple
+                    ):  # if the layer output is a tuple (aka. is a model output of (tensor, loss) )
+                        out, loss = layer_output
+                        grad = out.grad  # grad might
+
+                        if (
+                            loss is not None
+                        ):  # grad is not always calculated but one may want that too.
+                            loss = loss.detach().clone().to(device)
+
+                        if grad is not None:
+                            grad = grad.detach().clone().to(device)
+
+                        out = (out.detach().clone().to(device), loss)
+                        out[0].grad = grad
+
+                        moved_attr = attr.to(device)
+
+                        moved_attr.out = out
+
+                    elif isinstance(
+                        layer_output, torch.Tensor
+                    ):  # if it's just a tensor, then it's a layer output such as the Linear's.
+                        out = layer_output.detach().clone().to(device)
+                        grad = layer_output.grad
+
+                        if grad is not None:  #
+                            grad = grad.detach().clone().to(device)
+
+                        moved_attr = attr.to(device)
+                        moved_attr.out = out
+                        moved_attr.out.grad = grad
+
+                    else:
+                        raise NotImplementedError(
+                            "Layer's `out` can only be a tuple of (activation (torch.Tensor), loss (torch.Tensor | None)) or just activation (torch.Tensor)"
+                        )
+
+                else:
+                    moved_attr = attr.to(device)
+            else:  # if it's not in the debug mode, then we won't need the layer outputs and it's gradients.
+                moved_attr = attr.to(device)
+
+        elif isinstance(attr, torch.Tensor):
+            # we can move it normally
+            moved_attr = attr.to(device)
+
+        elif isinstance(attr, list):
+            if all(isinstance(a, BaseLayer) for a in attr):
+                moved_attr = [a.to(device) for a in attr]
+
+        else:
+            moved_attr = attr
+
+        # finally set the attribute
+        self.__setattr__(attr_name, moved_attr)
 
     def train(self):
         for layer in self._layers:
