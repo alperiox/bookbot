@@ -1,7 +1,7 @@
 from pypdf import PdfReader
 
 
-def load_pdf(filepath: str) -> list[str]:
+def load_pdf(filepath: str) -> str:
     reader = PdfReader(filepath)
     text = ""
     for page in reader.pages:
@@ -13,7 +13,7 @@ def load_pdf(filepath: str) -> list[str]:
     return text
 
 
-def load_txt(filepath: str) -> list[str]:
+def load_txt(filepath: str) -> str:
     return open(filepath, "r").read()
 
 
