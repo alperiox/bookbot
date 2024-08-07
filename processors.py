@@ -4,6 +4,7 @@ import torch
 from torch.utils.data import DataLoader, TensorDataset
 
 from fileloaders import AVAILABLE_LOADERS
+from samplers import InfiniteRandomSampler
 from tokenizers import Tokenizer
 
 
@@ -34,14 +35,14 @@ class DataProcessor(ABC):
         self.load_data()
 
     @abstractmethod
-    def process_raw_data(self):
+    def process_raw_data(self, *args, **kwargs) -> tuple[torch.Tensor, torch.Tensor]:
         pass
 
     @abstractmethod
-    def get_dataloaders(self):
+    def get_dataloaders(self, *args, **kwargs) -> tuple[DataLoader, DataLoader]:
         pass
 
-    def load_data(self):
+    def load_data(self) -> str:
         raw_data = ""
         for filepath in self.sources:
             ext = filepath.split(".")[-1]
@@ -136,14 +137,21 @@ class CharLevelMLPProcessor(DataProcessor):
         return blocks, targets
 
     def get_dataloaders(
-        self, batch_size, train_ratio=0.8, generator=torch.Generator().manual_seed(42)
+        self,
+        batch_size: int,
+        train_ratio: float = 0.8,
+        generator: torch.Generator = torch.Generator().manual_seed(42),
+        infinite_sampling: bool = False,
     ):
         """
         Given the batch size, training ratio and an optional generator object, returns the training and testing data loaders
         """
 
         # get the blocks and the targets
-        inputs, targets = (
+        (
+            inputs,
+            targets,
+        ) = (
             self.process_raw_data()
         )  # (n_samples, context_length), (n_samples, ) shaped tensors
 
@@ -164,8 +172,19 @@ class CharLevelMLPProcessor(DataProcessor):
         train_dataset = TensorDataset(train_inputs, train_targets)
         test_dataset = TensorDataset(test_inputs, test_targets)
 
-        train_loader = DataLoader(train_dataset, batch_size=batch_size, shuffle=True)
-        test_loader = DataLoader(test_dataset, batch_size=batch_size, shuffle=False)
+        if infinite_sampling:
+            train_loader = DataLoader(
+                train_dataset,
+                batch_size=batch_size,
+                shuffle=False,
+                sampler=InfiniteRandomSampler(len(train_dataset)),
+            )
+            test_loader = DataLoader(test_dataset, batch_size=batch_size, shuffle=False)
+        else:
+            train_loader = DataLoader(
+                train_dataset, batch_size=batch_size, shuffle=True
+            )
+            test_loader = DataLoader(test_dataset, batch_size=batch_size, shuffle=False)
 
         return train_loader, test_loader
 
@@ -199,14 +218,21 @@ class GPTProcessor(DataProcessor):
         return X, Y
 
     def get_dataloaders(
-        self, batch_size, train_ratio=0.9, generator=torch.Generator().manual_seed(42)
+        self,
+        batch_size,
+        train_ratio=0.9,
+        generator=torch.Generator().manual_seed(42),
+        infinite_sampling=False,
     ):
         """
         Given the batch size, training ratio and an optional generator object, returns the training and testing data loaders
         """
 
         # get the blocks and the targets
-        inputs, targets = (
+        (
+            inputs,
+            targets,
+        ) = (
             self.process_raw_data()
         )  # (n_samples, context_length), (n_samples, ) shaped tensors
 
@@ -227,7 +253,18 @@ class GPTProcessor(DataProcessor):
         train_dataset = TensorDataset(train_inputs, train_targets)
         test_dataset = TensorDataset(test_inputs, test_targets)
 
-        train_loader = DataLoader(train_dataset, batch_size=batch_size, shuffle=True)
-        test_loader = DataLoader(test_dataset, batch_size=batch_size, shuffle=False)
+        if infinite_sampling:
+            train_loader = DataLoader(
+                train_dataset,
+                batch_size=batch_size,
+                shuffle=False,
+                sampler=InfiniteRandomSampler(len(train_dataset)),
+            )
+            test_loader = DataLoader(test_dataset, batch_size=batch_size, shuffle=False)
+        else:
+            train_loader = DataLoader(
+                train_dataset, batch_size=batch_size, shuffle=True
+            )
+            test_loader = DataLoader(test_dataset, batch_size=batch_size, shuffle=False)
 
         return train_loader, test_loader
