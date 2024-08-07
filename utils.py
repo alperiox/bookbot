@@ -4,7 +4,10 @@ from pathlib import Path
 import matplotlib.pyplot as plt
 import torch
 from torch.nn import functional as F
+from torch.utils.data import DataLoader
 from tqdm import tqdm
+
+from optimizers import SGD
 
 
 def plot_aoc_ratio(ud, model, save_path: str = "artifacts"):
@@ -82,12 +85,15 @@ def plot_layer_grads(model, save_path: str = "artifacts"):
     plt.figure(figsize=(20, 4))
     legends = []
     layers = model._layers
+
     print("-" * 20)
     print("Layers: grads distribution")
+
     for i, layer in enumerate(layers):
         layer_name = layer.__class__.__name__
-        # print(f"func: plot_layer_grads | layer: {layer_name} | layer.out: {layer.out}")
         t = layer.out.grad
+        assert t is not None, f"Grads for {layer_name} is None!"
+
         print(
             "layer %d (%10s): mean %+.8f, std %.8f"
             % (i, layer_name, t.mean().item(), t.std().item())
@@ -95,10 +101,13 @@ def plot_layer_grads(model, save_path: str = "artifacts"):
         hy, hx = torch.histogram(t, density=True)
         plt.plot(hx[:-1].detach(), hy.detach())
         legends.append(f"layer {i} ({layer_name})")
+
     plt.legend(legends)
-    plt.title(f"Layers: grads distribution")
+    plt.title("Layers: grads distribution")
     plt.savefig(path / "grads.png")
+
     print("-" * 20)
+
     return
 
 
@@ -128,7 +137,7 @@ def plot_layer_outputs(model, save_path: str = "artifacts"):
         plt.plot(hx[:-1].detach(), hy.detach())
         legends.append(f"layer {i} ({layer_name})")
     plt.legend(legends)
-    plt.title(f"Layers: output distribution")
+    plt.title("Layers: output distribution")
     plt.savefig(path / "outputs.png")
     print("-" * 20)
     return
