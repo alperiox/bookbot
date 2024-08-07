@@ -21,6 +21,7 @@ scikit-learn = "^1.5.1"
 ruff = "^0.4.4"
 ipython = "^8.26.0"
 jupyter = "^1.0.0"
+mypy = "^1.11.1"
 
 [build-system]
 requires = ["poetry-core"]
