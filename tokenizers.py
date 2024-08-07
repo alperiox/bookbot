@@ -6,24 +6,15 @@ from pathlib import Path
 ### Template for the future tokenizers, all of them should follow this structure
 class Tokenizer(ABC):
     @abstractmethod
-    def __init__(self):
-        self.special_tokens = {
-            "<BEGIN>": 0,
-            "<END>": 1,
-        }
-        self.EOS_TOKEN = "<BEGIN>"
-        self.BOS_TOKEN = "<END>"
-
-    @abstractmethod
-    def encode(self, text: list):
+    def encode(self, texts: list[str | list[int]] | str) -> list[list[int]]:
         pass
 
     @abstractmethod
-    def decode(self, tokens: list):
+    def decode(self, tokens: list[list[int]]) -> list[str]:
         pass
 
     @abstractmethod
-    def fit(self, source: list[str]):
+    def fit(self, source: list[str] | str):
         """
         requires a list of strings.
         - defines vocabulary
@@ -72,7 +63,7 @@ class CharTokenizer(Tokenizer):
         }
         self.__dict__.update(self.special_token_mappings)
 
-    def fit(self, source: list[str]) -> None:
+    def fit(self, source: list[str] | str) -> None:
         if isinstance(source, str):
             source = [source]
 
@@ -82,25 +73,29 @@ class CharTokenizer(Tokenizer):
             tokens.update(unique_chars)
 
         # define the vocabulary
-        self.vocabulary = sorted(list(tokens))
+        self.vocabulary: list = sorted(list(tokens))
         # define the vocab_size
-        self.vocab_size = len(tokens) + len(self.special_tokens)
+        self.vocab_size: int = len(tokens) + len(self.special_tokens)
         # define the stoi and itos dictionaries
         # stoi: string -> ix
         # itos: ix -> string
-        self.stoi = self.special_tokens.copy()
+        self.stoi: dict = self.special_tokens.copy()
         self.stoi.update({t: i for i, t in enumerate(tokens, len(self.special_tokens))})
-        self.itos = {i: t for t, i in self.stoi.items()}
+        self.itos: dict = {i: t for t, i in self.stoi.items()}
 
         return
 
     def pad(self, sequences: list[list[int]], length: int) -> list[list[int]]:
         """pads the given list of sequences (a list of tokens) to the given length"""
-        if not isinstance(sequences[0], list):
-            sequences = [sequences]
+        if isinstance(sequences, list):
+            if all([isinstance(s, int) for s in sequences]):
+                sequences = list(sequences)
 
         padded_tokens = []
         for s in sequences:
+            if not isinstance(s, list):
+                raise ValueError(f"Sequence {s} is not a list!")
+
             L = len(s)
             if L < length:
                 # pad the sequence
@@ -112,7 +107,7 @@ class CharTokenizer(Tokenizer):
 
         return padded_tokens
 
-    def encode(self, texts: list[str]) -> list[list[int]]:
+    def encode(self, texts: list[str | list[int]] | str) -> list[list[int]]:
         if isinstance(texts, str):
             texts = [texts]
 
@@ -129,8 +124,9 @@ class CharTokenizer(Tokenizer):
         return tokens
 
     def decode(self, tokens: list[list[int]]) -> list[str]:
-        if not isinstance(tokens[0], list):  # if it's not a list of lists
-            tokens = [tokens]
+        if isinstance(tokens, list):
+            if all([isinstance(s, int) for s in tokens]):
+                tokens = list(tokens)
 
         texts = []
         for token_list in tokens:
