@@ -93,6 +93,12 @@ parser.add_argument(
     help="Print debug statistics and save statistical plots on artifacts folder",
     default=False,
 )
+parser.add_argument(
+    "--max_steps",
+    help="Train the model for given number of steps instead of full epochs.",
+    default=None,
+    type=int,
+)
 args = parser.parse_args()
 args = vars(args)
 
