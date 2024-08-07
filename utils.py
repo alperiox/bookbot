@@ -212,6 +212,79 @@ def save_artifacts(save_path, **kwargs):
         torch.save(value, f"{save_path}/{key}.pt")
 
 
+def calc_debug_stats(
+    learning_rate, parameters
+) -> tuple[list[float], list[float], list[float]]:
+    ratio = [
+        (learning_rate * p.grad.std() / p.data.std()).log10().item()
+        for p in parameters.values()
+    ]
+    means = [p.mean().item() for p in parameters.values()]
+    stds = [p.std().item() for p in parameters.values()]
+
+    return ratio, means, stds
+
+
+def retain_grads(layer):
+    layer.out.retain_grad()
+    for l in layer._layers:
+        retain_grads(l)
+
+
+def train_step(
+    model, parameters, optimizer, lr, x, y, device, debug_stats
+) -> tuple[float, list[float] | None, list[float] | None, list[float] | None]:
+    """optimizes the model weights using the given optimizer object for a batch"""
+    x, y = x.to(device), y.to(device)
+
+    # get the logits and the loss
+    logits, loss = model(x, y)
+    # optimize the model parameters and log the gradients if needed
+    if debug_stats:
+        for layer in model._layers:
+            retain_grads(layer)
+
+    optimizer.zero_grad()  # cast the grads to None
+
+    # backward pass
+    loss.backward()
+
+    with torch.no_grad():
+        optimizer.step(lr)
+
+        ratio, means, stds = (
+            calc_debug_stats(lr, parameters) if debug_stats else (None, None, None)
+        )
+
+    return loss.item(), ratio, means, stds
+
+
+def evaluate(model, loader, device, progress_bar=True):
+    valid_losses = torch.zeros(len(loader))
+
+    bar = (
+        tqdm(enumerate(loader), total=len(loader))
+        if progress_bar
+        else enumerate(loader)
+    )
+
+    for i, (x, y) in bar:
+        with torch.no_grad():
+            x, y = x.to(device), y.to(device)
+            # same as above, don't calculate the gradients this time
+            # and just calculate the loss
+            logits, loss = model(x, y)
+        # statistics and logging, again.
+        valid_losses[i] = loss
+        if progress_bar:
+            desc_text = (
+                f"({(i+1)}/{len(loader)}): loss {valid_losses.sum()/((i+1)):.4f}"
+            )
+            bar.set_description(desc_text)
+
+    return valid_losses.mean().item()
+
+
 def train_loop(
     model,
     train_loader,
