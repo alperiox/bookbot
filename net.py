@@ -7,6 +7,7 @@ import torch
 from sklearn.decomposition import PCA
 from torch.nn import functional as F
 
+from tokenizers import Tokenizer
 from utils import debug, flatten_dict
 
 
@@ -30,18 +31,17 @@ class CombinedMeta(Meta, ABC):
 
 
 class BaseLayer(metaclass=CombinedMeta):
-
     @abstractmethod
     def __init__(self, log_outputs=False):
         self.out = None
         self.log_outputs = log_outputs
 
     @abstractmethod
-    def __call__(self, x):
+    def __call__(self, x) -> tuple[torch.Tensor, torch.Tensor | None] | torch.Tensor:
         pass
 
     @abstractmethod
-    def parameters(self):
+    def parameters(self) -> dict[str, torch.Tensor]:
         pass
 
     def _collect_layers(self):
@@ -52,6 +52,10 @@ class BaseLayer(metaclass=CombinedMeta):
             # all my layers will be defined as BaseLayer, so maybe I can use that as a distinctive condition
             if isinstance(attr, BaseLayer):
                 layers.append(attr)
+
+            elif isinstance(attr, list):
+                if all(isinstance(e, BaseLayer) for e in attr):
+                    layers.extend(attr)
         self._layers = layers
         return
 
@@ -66,7 +70,7 @@ class BaseLayer(metaclass=CombinedMeta):
                     self.__setattr__(attr_name, [a.to(device) for a in attr])
         return self
 
-    def train(self, log=False):
+    def train(self):
         for layer in self._layers:
             layer.training = True
 
@@ -79,16 +83,16 @@ class BaseLayer(metaclass=CombinedMeta):
         for layer in self._layers:
             layer.start_debug()
             if isinstance(layer, Sequential):
-                for l in layer.layers:
-                    l.start_debug()
+                for layer in layer.layers:
+                    layer.start_debug()
 
     def stop_debug(self):
         self.log_outputs = False
         for layer in self._layers:
             layer.stop_debug()
             if isinstance(layer, Sequential):
-                for l in layer.layers:
-                    l.stop_debug()
+                for layer in layer.layers:
+                    layer.stop_debug()
 
 
 class Head(BaseLayer):
@@ -390,6 +394,9 @@ class BatchNorm1d(BaseLayer):
                 dim = 0
             elif x.ndim == 3:
                 dim = (0, 1)
+            else:
+                raise NotImplementedError("Number of input dimensions must be 2 or 3.")
+
             xmean = x.mean(dim, keepdim=True)  # batch mean
             xvar = x.var(dim, keepdim=True)
         else:
@@ -433,7 +440,7 @@ class LinearBlock(BaseLayer):
 
 
 class Flatten(BaseLayer):
-    def __call__(self, x: torch.tensor) -> torch.tensor:
+    def __call__(self, x: torch.Tensor) -> torch.Tensor:
         out = x.view(x.size(0), -1)
         return out
 
@@ -466,23 +473,22 @@ class Sequential(BaseLayer):
         out = x
         for layer in self.layers:
             out = layer(out)
-            # print(f"{layer.__class__(BaseLayer).__name__:20s}:", out.shape)
 
         return out
 
     def parameters(self):
         params = {}
-        layernames = [l.__class__.__name__.lower() for l in self.layers]
+        layernames = [layer.__class__.__name__.lower() for layer in self.layers]
         counts = {}
         for name in layernames:
             counts[name] = counts.get(name, 0) + 1
 
-        for name, l in zip(layernames, self.layers):
+        for name, layer in zip(layernames, self.layers):
             ix = counts[name] - 1
             counts[name] -= 1
 
-            layername = l.__class__.__name__.lower()
-            params[f"{layername}{ix}"] = l.parameters()
+            layername = layer.__class__.__name__.lower()
+            params[f"{layername}{ix}"] = layer.parameters()
 
         return flatten_dict(params)
 
@@ -495,12 +501,12 @@ class HierarchicalMLP(BaseLayer):
             n_consecutive**n_layers == block_size
         ), "`n_consecutive^n_layers` must be equal to `block_size` because of `FlattenConsecutive`!"
         super().__init__()
-        self.vocab_size = vocab_size
-        self.n_consecutive = n_consecutive
-        self.n_embed = n_embed
-        self.n_hidden = n_hidden
-        self.block_size = block_size
-        self.n_layers = n_layers
+        self.vocab_size: int = vocab_size
+        self.n_consecutive: int = n_consecutive
+        self.n_embed: int = n_embed
+        self.n_hidden: int = n_hidden
+        self.block_size: int = block_size
+        self.n_layers: int = n_layers
 
         self.special_tokens = {}
 
@@ -576,7 +582,7 @@ class HierarchicalMLP(BaseLayer):
 
     def get_layer_output_histograms(
         self,
-        sample_input: torch.Tensor = None,
+        sample_input: torch.Tensor | None = None,
         save_affix: str = "pretraining",
         save_path: str = "artifacts",
     ):
@@ -615,7 +621,7 @@ class HierarchicalMLP(BaseLayer):
         save_affix: str = "pretraining",
         save_path: str = "artifacts",
         ndims=1,
-        tokenizer=None,
+        tokenizer: Tokenizer | None = None,
     ):
         assert ndims < 2, "ndims must be 1 or 2 for plotting the embeddings"
         pca = PCA(n_components=ndims)
@@ -623,7 +629,7 @@ class HierarchicalMLP(BaseLayer):
 
         plt.figure(figsize=(self.n_embed // 5, 10))
         plt.title("Embedding weights")
-        if tokenizer is not None:
+        if isinstance(tokenizer, Tokenizer):
             tokens = tokenizer.itos
         else:
             tokens = {i: i for i in range(self.vocab_size)}
@@ -634,7 +640,7 @@ class HierarchicalMLP(BaseLayer):
             plt.xticks(range(self.vocab_size), tokens.values())
 
             if plot_text:
-                for i in range(len(self.vocab_size)):
+                for i in range(self.vocab_size):
                     plt.text(i, 0, weights[i, 0])
         else:
             plt.scatter(weights[:, 0], weights[:, 1])
@@ -733,7 +739,7 @@ class MLP(BaseLayer):
 
     def get_layer_output_histograms(
         self,
-        sample_input: torch.Tensor = None,
+        sample_input: torch.Tensor | None = None,
         save_affix: str = "pretraining",
         save_path: str = "artifacts",
     ):
@@ -832,7 +838,7 @@ class GPT(BaseLayer):
         self.ln_f = LayerNorm(n_embd)
         self.ln_head = Linear(n_embd, vocab_size)
 
-    def __call__(self, idx, targets=None):
+    def __call__(self, idx, targets=None) -> tuple[torch.Tensor, torch.Tensor | None]:
         # inputs and targets are (B, T) shaped
         B, T = idx.shape
 
@@ -881,7 +887,7 @@ class GPT(BaseLayer):
 
     def get_layer_output_histograms(
         self,
-        sample_input: torch.Tensor = None,
+        sample_input: torch.Tensor | None = None,
         save_affix: str = "pretraining",
         save_path: str = "artifacts",
     ):
@@ -1028,7 +1034,7 @@ class GPT(BaseLayer):
 
     def plot_attn_heatmaps(
         self,
-        sample_input: torch.Tensor = None,
+        sample_input: torch.Tensor | None = None,
         plot_text: bool = False,
         save_affix: str = "pretraining",
         save_path: str = "artifacts",
