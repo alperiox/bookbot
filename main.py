@@ -100,7 +100,35 @@ parser.add_argument(
     type=int,
 )
 args = parser.parse_args()
-args = vars(args)
+
+## Arguments
+# model architecture
+n_embed = args.n_embed
+n_hidden = args.n_hidden
+block_size = args.block_size
+modelname = args.model
+n_consecutive = args.n_consecutive
+num_blocks = args.num_blocks
+num_heads = args.num_heads
+n_layers = args.n_layers
+
+# inference
+max_new_tokens = args.max_new_tokens
+context = args.context
+generate = args.generate
+
+# training
+filepath = args.file
+save_path = args.save_path
+debug = args.debug
+device = args.device
+
+train_ratio = args.train_ratio
+batch_size = args.batch_size
+epochs = args.epochs
+max_steps = args.max_steps
+learning_rate = args.lr
+lrsche = args.lrsche
 
 if __name__ == "__main__":
     if args["generate"]:
