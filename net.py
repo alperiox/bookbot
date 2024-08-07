@@ -1,5 +1,4 @@
 import os
-from abc import ABC, abstractmethod
 from pathlib import Path
 
 import matplotlib.pyplot as plt
@@ -9,7 +8,6 @@ from torch import nn
 from torch.nn import functional as F
 
 from tokenizers import Tokenizer
-from utils import flatten_dict
 
 
 class Head(nn.Module):

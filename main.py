@@ -7,13 +7,9 @@ import torch
 from net import GPT, MLP, HierarchicalMLP
 from processors import CharLevelMLPProcessor, GPTProcessor
 from tokenizers import CharTokenizer
-from utils import (
+from utils import (  # plot_aoc_ratio,; plot_grad2data_ratio,; plot_layer_grads,; plot_layer_outputs,
     get_baseline_score,
     load_artifact,
-    plot_aoc_ratio,
-    plot_grad2data_ratio,
-    plot_layer_grads,
-    plot_layer_outputs,
     save_artifacts,
     save_loss_figures,
     train_loop,
@@ -34,7 +30,7 @@ parser.add_argument("--n_hidden", type=int, default=400, help="Hidden size")
 parser.add_argument("--block_size", type=int, default=16, help="Block size")
 parser.add_argument("--batch_size", type=int, default=32, help="Batch size")
 parser.add_argument("--epochs", type=int, default=None, help="Number of epochs")
-parser.add_argument("--lr", type=float, default=0.001, help="Learning rate")
+parser.add_argument("--lr", type=float, default=0.01, help="Learning rate")
 parser.add_argument(
     "--lrsche", action="store_true", help="Learning rate scheduler", default=False
 )
@@ -234,30 +230,12 @@ if __name__ == "__main__":
         #     tokenizer.encode(sample_input[: model.block_size]), dtype=torch.long
         # )
 
-        if debug:
-            get_baseline_score(tokenizer.vocab_size)
-            model.get_layer_output_histograms(
-                save_affix="pretraining",
-                save_path=save_path,
-            )
-            model.plot_emb_weights(
-                save_affix="pretraining",
-                plot_text=False,
-                save_path=save_path,
-                tokenizer=tokenizer,
-            )
-            if model == "gpt":
-                model.plot_attn_heatmaps(
-                    save_affix="pretraining",
-                    plot_text=False,
-                    save_path=save_path,
-                )
-
-            print("VOCABULARY:")
-            print(tokenizer.vocabulary)
+        get_baseline_score(tokenizer.vocab_size)
+        print("VOCABULARY:")
+        print(tokenizer.vocabulary)
 
         # train the model
-        train_losses, valid_losses, ratios, means, stds = train_loop(
+        train_losses, valid_losses = train_loop(
             model,
             train_loader,
             test_loader,
@@ -266,31 +244,11 @@ if __name__ == "__main__":
             learning_rate=learning_rate,
             lrsche=lrsche,
             device=device,
-            debug_stats=debug,
         )
 
-        if debug:
-            plot_layer_outputs(model)
-            plot_layer_grads(model)
-            plot_grad2data_ratio(model)
-            plot_aoc_ratio(ratios, model)
+        save_loss_figures(train_losses, valid_losses)
 
-            save_loss_figures(train_losses, valid_losses, save_path=save_path)
-            model.get_layer_output_histograms(
-                save_affix="results",
-                save_path=save_path,
-            )
-            model.plot_emb_weights(
-                save_affix="results", plot_text=False, save_path=save_path
-            )
-            if model == "gpt":
-                model.plot_attn_heatmaps(
-                    save_affix="results",
-                    plot_text=False,
-                    save_path=save_path,
-                )
         # save the results
-
         save_artifacts(
             model=model,
             tokenizer=tokenizer,

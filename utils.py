@@ -3,7 +3,6 @@ from pathlib import Path
 
 import matplotlib.pyplot as plt
 import torch
-from torch.nn import functional as F
 from torch.utils.data import DataLoader
 from tqdm import tqdm
 
@@ -281,9 +280,6 @@ def train_loop(
     train_batch_size: int = (
         train_loader.batch_size if isinstance(train_loader.batch_size, int) else 1
     )
-    test_batch_size: int = (
-        test_loader.batch_size if isinstance(test_loader.batch_size, int) else 1
-    )
 
     num_training_samples = len(train_loader.dataset)
 
@@ -315,8 +311,8 @@ def train_loop(
 
             train_losses[epoch] /= len(train_loader)
             model.eval()
-            # valid_loss = evaluate(model, test_loader, device)
-            # valid_losses[epoch] = valid_loss
+            valid_loss = evaluate(model, test_loader, device)
+            valid_losses[epoch] = valid_loss
 
     elif max_steps is not None:
         # if `max_steps` is given instead of `epochs`,
