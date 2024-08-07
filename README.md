@@ -2,7 +2,7 @@
 
 a project that reads the given file and uses a neural network to generate text that looks like from the book.
 
-the built-in neural network is a MLP, Wavenet-inspired Hierarchical MLP, and a GPT network that's built with pure Pytorch (from scratch) along with batch normalization layer and Kaiming initialization.
+the built-in neural network is MLP, Wavenet-inspired Hierarchical MLP, and a GPT network that's built with pure Pytorch (from scratch) along with batch normalization layer and Kaiming initialization.
 
 Thanks to Andrej Karpathy for his great course on deep learning.
 
