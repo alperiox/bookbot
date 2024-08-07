@@ -287,13 +287,14 @@ def evaluate(model, loader, device, progress_bar=True):
 
 def train_loop(
     model,
-    train_loader,
-    test_loader,
-    epochs,
-    learning_rate,
-    lrsche,
-    device,
-    debug_stats=True,
+    train_loader: DataLoader,
+    test_loader: DataLoader,
+    learning_rate: float,
+    lrsche: bool,
+    device: str,
+    debug_stats: bool = True,
+    max_steps: int | None = None,
+    epochs: int | None = None,
 ):
     """
     Trains the given model using the provided data loaders.
@@ -305,11 +306,10 @@ def train_loop(
     learning_rate (float): the learning rate that'll be used to scale the gradients in the optimization phase
     lrsche (bool): whether apply a learning rate decay or not
     """
+    assert not (
+        max_steps and epochs
+    ), "You cannot pass both `max_steps` and `epochs` at the same time!"
     # allow the model parameters to calculate gradients
-
-    # loss vectors
-    train_losses = torch.zeros(epochs)
-    valid_losses = torch.zeros(epochs)
 
     # the initial learning_rate
     lr = learning_rate
@@ -319,77 +319,99 @@ def train_loop(
     parameters = model.parameters()
     for k, p in parameters.items():
         p.requires_grad = True
+
+    optimizer = SGD()
+    optimizer.register_params(parameters)
+
+    ratios, means_list, stds_list = [], [], []
+
     # training loop
-    for epoch in range(epochs):
-        # set up the tqdm bar
-        bar = tqdm(enumerate(train_loader), total=len(train_loader))
-        # decay the learning rate if it's provided
-        if lrsche and epochs > 1:
-            n_epochs = round(epochs * 0.33)
-            if (epoch + 1) % n_epochs == 0:
-                lr = lr / 10
-        print("========")
-        print("TRAINING (epoch:%d/%d)" % (epoch + 1, epochs))
-        ratios, means_list, stds_list = [], [], []
+    if epochs:
+        # loss vectors
+        train_losses = torch.zeros(epochs)
+        valid_losses = torch.zeros(epochs)
+
+        for epoch in range(epochs):
+            # set up the tqdm bar
+            bar = tqdm(enumerate(train_loader), total=len(train_loader))
+            # decay the learning rate if it's provided
+            if lrsche and epochs > 1:
+                n_epochs = round(epochs * 0.33)
+                if (epoch + 1) % n_epochs == 0:
+                    lr = lr / 10
+            print("========")
+            print("TRAINING (epoch:%d/%d)" % (epoch + 1, epochs))
+
+            model.train()
+            model.start_debug()
+            for i, (x, y) in bar:
+                loss, ratio, means, stds = train_step(
+                    model, parameters, optimizer, lr, x, y, device, debug_stats
+                )
+                ratios.append(ratio)
+                means_list.append(means)
+                stds_list.append(stds)
+                # statistics and logging
+                train_losses[epoch] += loss
+                desc_text = f"({epoch*train_loader.batch_size + i*train_loader.batch_size}/{len(train_loader.dataset)}) (lr={lr:.4f}): loss {train_losses[epoch]/(i+1):.4f}"
+                bar.set_description(desc_text)
+
+            train_losses[epoch] /= len(train_loader)
+            model.eval()
+            model.stop_debug()
+            # valid_loss = evaluate(model, test_loader, device)
+            # valid_losses[epoch] = valid_loss
+
+    elif max_steps is not None:
+        # if `max_steps` is given instead of `epochs`,
+        # just train the model for the given max_steps,
+        # we will assume the dataloader has InfiniteRandomSampler as it's sampler
+        # but it can be used with default dataloader as well
+        bar = tqdm(total=max_steps)
+
+        # loss vectors
+        train_losses = torch.zeros(max_steps)
+        valid_losses = torch.zeros(max_steps)
+        batch_size = train_loader.batch_size
+        total = 0
+        frac = round(max_steps * 0.33)
+        valid_loss = 0
 
         model.train()
-        model.start_debug()
-        for i, (x, y) in bar:
-            x, y = x.to(device), y.to(device)
-            # get the logits and the loss
-            logits, loss = model(x, y)
-            # optimize the model parameters and log the gradients if needed
-            if debug_stats:
-                for l in model._layers:
-                    l.out.retain_grad()
+        if debug_stats:
+            model.start_debug()
 
-            for k, param in parameters.items():
-                param.grad = None
-            # backward pass
-            loss.backward()
+        for ix, (x, y) in enumerate(train_loader):
+            if ix == max_steps:
+                break
 
-            with torch.no_grad():
-                for k, param in parameters.items():
-                    param.data += -learning_rate * param.grad
-
-                if debug_stats:
-                    ratio = [
-                        (learning_rate * p.grad.std() / p.data.std()).log10().item()
-                        for p in parameters.values()
-                    ]
-                    means = [p.mean().item() for p in parameters.values()]
-                    stds = [p.std().item() for p in parameters.values()]
-                else:
-                    ratio = None
-                    means = None
-                    stds = None
+            loss, ratio, means, stds = train_step(
+                model, parameters, optimizer, lr, x, y, device, debug_stats
+            )
 
             ratios.append(ratio)
             means_list.append(means)
             stds_list.append(stds)
-            # log the loss
-            loss = loss.item()
-            # statistics and logging
-            train_losses[epoch] += loss
-            desc_text = f"({epoch*train_loader.batch_size + i*train_loader.batch_size}/{len(train_loader.dataset)}) (lr={lr:.4f}): loss {train_losses[epoch]/(i+1):.4f}"
-            bar.set_description(desc_text)
-        train_losses[epoch] /= len(train_loader)
-        print("TESTING")
-        model.eval()
-        model.stop_debug()
-        bar = tqdm(enumerate(test_loader), total=len(test_loader))
-        for i, (x, y) in bar:
-            with torch.no_grad():
-                x, y = x.to(device), y.to(device)
-                # same as above, don't calculate the gradients this time
-                # and just calculate the loss
-                logits, loss = model(x, y)
-            # statistics and logging, again.
-            valid_losses[epoch] += loss.item()
-            desc_text = f"({epoch*test_loader.batch_size + i*test_loader.batch_size}/{len(test_loader.dataset)}): loss {valid_losses[epoch]/(i+1):.4f}"
-            bar.set_description(desc_text)
-        valid_losses[epoch] /= len(test_loader)
 
-    model.to("cpu")  # move the model to the cpu
+            bar.update(1)
+            total += batch_size
+
+            train_losses[ix] = loss
+
+            desc_text = f"(lr={lr:.4f}): loss {train_losses.sum()/(ix+1):.4f} val_loss {valid_loss:.4f}"
+            bar.set_description(desc_text)
+
+            if frac > 1 and ((ix + 1) % frac == 0):
+                model.eval()
+                model.stop_debug()
+                valid_loss = evaluate(model, test_loader, device, progress_bar=False)
+                model.train()
+                if debug_stats:
+                    model.start_debug()
+
+        model.to("cpu")
+
+        bar.close()
+
     # return the losses.
     return train_losses, valid_losses, ratios, means_list, stds_list
