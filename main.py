@@ -33,7 +33,7 @@ parser.add_argument("--n_embed", type=int, default=15, help="Embedding size")
 parser.add_argument("--n_hidden", type=int, default=400, help="Hidden size")
 parser.add_argument("--block_size", type=int, default=16, help="Block size")
 parser.add_argument("--batch_size", type=int, default=32, help="Batch size")
-parser.add_argument("--epochs", type=int, default=30, help="Number of epochs")
+parser.add_argument("--epochs", type=int, default=None, help="Number of epochs")
 parser.add_argument("--lr", type=float, default=0.001, help="Learning rate")
 parser.add_argument(
     "--lrsche", action="store_true", help="Learning rate scheduler", default=False
@@ -131,22 +131,20 @@ learning_rate = args.lr
 lrsche = args.lrsche
 
 if __name__ == "__main__":
-    if args["generate"]:
+    if generate:
         # we need to load the model and start generating text
 
         # check if there's a pretrained model and tokenizer
-        assert os.path.exists(f"{args['save_path']}/model.pt"), "Model not found"
-        assert os.path.exists(
-            f"{args['save_path']}/tokenizer.pt"
-        ), "Tokenizer not found"
+        assert os.path.exists(f"{save_path}/model.pt"), "Model not found"
+        assert os.path.exists(f"{save_path}/tokenizer.pt"), "Tokenizer not found"
         # load the model and the tokenizer
-        model = load_artifact(args["save_path"], "model")
-        tokenizer = load_artifact(args["save_path"], "tokenizer")
+        model = load_artifact(save_path, "model")
+        tokenizer = load_artifact(save_path, "tokenizer")
         # tokenize the context
-        context = tokenizer.encode(args["context"])
+        context = tokenizer.encode(context)
         # if the model is hmlp, we should pad the input tokens in case they will be less than the context length
         # it's because the hierarchical architecture makes use of the context length, so it requires inputs to be at least the `context length`-sized vectors
-        if args["model"] == "hmlp":
+        if modelname == "hmlp":
             context = tokenizer.pad(context, length=model.block_size)
         context = torch.tensor(context, dtype=torch.long)
         # if the model has special tokens and tokenizer has special_token_mappings attrs
@@ -160,9 +158,7 @@ if __name__ == "__main__":
                 for k, v in tokenizer.special_token_mappings.items()
             }
         # generate the output tokens
-        output_tokens = model.generate(
-            idx=context, max_new_tokens=args["max_new_tokens"]
-        )
+        output_tokens = model.generate(idx=context, max_new_tokens=max_new_tokens)
         # decode the output and join to the text
         text = "".join(tokenizer.decode(output_tokens.tolist())[0])
         # strip the special tokens
@@ -173,57 +169,60 @@ if __name__ == "__main__":
         # load the corresponding tokenizer and the processor for different models
         # their behavior is rather model-agnostic, one might want to check out
         # the source code to understand how they work internally.
-        if args["model"] in ["hmlp", "mlp"]:
-            tokenizer = CharTokenizer()
+        tokenizer = CharTokenizer()
+        if modelname in ["hmlp", "mlp"]:
             processor = CharLevelMLPProcessor(
-                paths=args["file"],
+                paths=filepath,
                 tokenizer=tokenizer,
-                context_length=args["block_size"],
+                context_length=block_size,
             )
-        elif args["model"] == "gpt":
-            tokenizer = CharTokenizer()
+        elif modelname == "gpt":
             # I didn't use these in my first implementation, maybe later.
             tokenizer.BOS_TOKEN = ""
             tokenizer.EOS_TOKEN = ""
             tokenizer.special_tokens = {}
 
             processor = GPTProcessor(
-                paths=args["file"],
+                paths=filepath,
                 tokenizer=tokenizer,
-                context_length=args["block_size"],
+                context_length=block_size,
             )
-
+        else:
+            print("Only MLP, hMLP and GPT models are supported!")
+            exit()
         # get the data loaders
         train_loader, test_loader = processor.get_dataloaders(
-            args["batch_size"], args["train_ratio"]
+            batch_size,
+            train_ratio,
+            infinite_sampling=bool(max_steps),
         )
         # the vocabulary size is calculated in tokenizer already.
         vocab_size = tokenizer.vocab_size
         # load the model
-        if args["model"] == "hmlp":
+        if modelname == "hmlp":
             model = HierarchicalMLP(
                 vocab_size,
-                n_consecutive=args["n_consecutive"],
-                n_embed=args["n_embed"],
-                n_hidden=args["n_hidden"],
-                n_layers=args["n_layers"],
-                block_size=args["block_size"],
+                n_consecutive=n_consecutive,
+                n_embed=n_embed,
+                n_hidden=n_hidden,
+                n_layers=n_layers,
+                block_size=block_size,
             )
-        elif args["model"] == "mlp":
+        elif modelname == "mlp":
             model = MLP(
                 vocab_size,
-                n_embed=args["n_embed"],
-                block_size=args["block_size"],
-                n_hidden=args["n_hidden"],
-                n_layers=args["n_layers"],
+                n_embed=n_embed,
+                block_size=block_size,
+                n_hidden=n_hidden,
+                n_layers=n_layers,
             )
-        elif args["model"] == "gpt":
+        elif modelname == "gpt":
             model = GPT(
-                n_embd=args["n_embed"],
+                n_embd=n_embed,
                 vocab_size=vocab_size,
-                num_heads=args["num_heads"],
-                num_blocks=args["num_blocks"],
-                block_size=args["block_size"],
+                num_heads=num_heads,
+                num_blocks=num_blocks,
+                block_size=block_size,
             )
 
         else:
@@ -235,23 +234,23 @@ if __name__ == "__main__":
         #     tokenizer.encode(sample_input[: model.block_size]), dtype=torch.long
         # )
 
-        if args["debug"]:
+        if debug:
             get_baseline_score(tokenizer.vocab_size)
             model.get_layer_output_histograms(
                 save_affix="pretraining",
-                save_path=args["save_path"],
+                save_path=save_path,
             )
             model.plot_emb_weights(
                 save_affix="pretraining",
                 plot_text=False,
-                save_path=args["save_path"],
+                save_path=save_path,
                 tokenizer=tokenizer,
             )
-            if args["model"] == "gpt":
+            if model == "gpt":
                 model.plot_attn_heatmaps(
                     save_affix="pretraining",
                     plot_text=False,
-                    save_path=args["save_path"],
+                    save_path=save_path,
                 )
 
             print("VOCABULARY:")
@@ -262,34 +261,36 @@ if __name__ == "__main__":
             model,
             train_loader,
             test_loader,
-            epochs=args["epochs"],
-            learning_rate=args["lr"],
-            lrsche=args["lrsche"],
-            device=args["device"],
-            debug_stats=args["debug"],
+            epochs=epochs,
+            max_steps=max_steps,
+            learning_rate=learning_rate,
+            lrsche=lrsche,
+            device=device,
+            debug_stats=debug,
         )
 
-        if args["debug"]:
+        if debug:
             plot_layer_outputs(model)
             plot_layer_grads(model)
             plot_grad2data_ratio(model)
             plot_aoc_ratio(ratios, model)
 
-            save_loss_figures(train_losses, valid_losses, save_path=args["save_path"])
+            save_loss_figures(train_losses, valid_losses, save_path=save_path)
             model.get_layer_output_histograms(
                 save_affix="results",
-                save_path=args["save_path"],
+                save_path=save_path,
             )
             model.plot_emb_weights(
-                save_affix="results", plot_text=False, save_path=args["save_path"]
+                save_affix="results", plot_text=False, save_path=save_path
             )
-            if args["model"] == "gpt":
+            if model == "gpt":
                 model.plot_attn_heatmaps(
                     save_affix="results",
                     plot_text=False,
-                    save_path=args["save_path"],
+                    save_path=save_path,
                 )
         # save the results
+
         save_artifacts(
             model=model,
             tokenizer=tokenizer,
@@ -297,7 +298,7 @@ if __name__ == "__main__":
             valid_losses=valid_losses,
             train_loader=train_loader,
             test_loader=test_loader,
-            save_path=args["save_path"],
+            save_path=save_path,
         )
 
         print("-" * 50)
