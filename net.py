@@ -62,9 +62,18 @@ class MultiHeadAttention(nn.Module):
         self.head_size = head_size
         self.block_size = block_size
 
-        self.key = nn.Parameter(torch.randn(num_heads, n_embd, head_size))
-        self.query = nn.Parameter(torch.randn(num_heads, n_embd, head_size))
-        self.value = nn.Parameter(torch.randn(num_heads, n_embd, head_size))
+        self.key = (
+            nn.Parameter(torch.randn(num_heads, n_embd, head_size))
+            * (num_heads * n_embd) ** -0.5
+        )
+        self.query = (
+            nn.Parameter(torch.randn(num_heads, n_embd, head_size))
+            * (num_heads * n_embd) ** -0.5
+        )
+        self.value = (
+            nn.Parameter(torch.randn(num_heads, n_embd, head_size))
+            * (num_heads * n_embd) ** -0.5
+        )
 
         self.proj = Linear(n_embd, n_embd)
 
