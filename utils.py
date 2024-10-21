@@ -208,11 +208,10 @@ def train_step(
     _, loss = model(x, y)
     # optimize the model parameters and log the gradients if needed
 
-    optimizer.zero_grad()  # cast the grads to None
     # backward pass
     loss.backward()
-
     optimizer.step()
+    optimizer.zero_grad(set_to_none=True)  # cast the grads to None
 
     return loss.item()
 
@@ -344,7 +343,6 @@ def train_loop(
 
             desc_text = f"(lr={learning_rate:.4f}): loss {train_losses.sum()/(ix+1):.4f} val_loss {valid_loss:.4f}"
             bar.set_description(desc_text)
-
             if frac > 1 and ((ix + 1) % frac == 0):
                 model.eval()
                 valid_loss = evaluate(model, test_loader, device, progress_bar=False)

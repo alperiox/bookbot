@@ -4,7 +4,7 @@ import os
 
 import torch
 
-from net import GPT, MLP, HierarchicalMLP
+from net import GPDT, GPT, MLP, HierarchicalMLP
 from processors import CharLevelMLPProcessor, GPTProcessor
 from tokenizers import CharTokenizer
 from utils import (  # plot_aoc_ratio,; plot_grad2data_ratio,; plot_layer_grads,; plot_layer_outputs,
@@ -44,7 +44,7 @@ parser.add_argument(
     "--model",
     type=str,
     default="gpt",
-    help="(hmlp) hierarchical, (mlp) mlp, or (gpt) GPT model to train",
+    help="(hmlp) hierarchical, (mlp) mlp, or (gpt/gpdt) GPT model to train",
 )
 parser.add_argument(
     "--n_consecutive",
@@ -172,7 +172,7 @@ if __name__ == "__main__":
                 tokenizer=tokenizer,
                 context_length=block_size,
             )
-        elif modelname == "gpt":
+        elif modelname == "gpt" or modelname == "gpdt":
             # I didn't use these in my first implementation, maybe later.
             tokenizer.BOS_TOKEN = ""
             tokenizer.EOS_TOKEN = ""
@@ -184,7 +184,7 @@ if __name__ == "__main__":
                 context_length=block_size,
             )
         else:
-            print("Only MLP, hMLP and GPT models are supported!")
+            print("Only MLP, hMLP, GPT, and GPDT models are supported!")
             exit()
         # get the data loaders
         train_loader, test_loader = processor.get_dataloaders(
@@ -214,6 +214,14 @@ if __name__ == "__main__":
             )
         elif modelname == "gpt":
             model = GPT(
+                n_embd=n_embed,
+                vocab_size=vocab_size,
+                num_heads=num_heads,
+                num_blocks=num_blocks,
+                block_size=block_size,
+            )
+        elif modelname == "gpdt":
+            model = GPDT(
                 n_embd=n_embed,
                 vocab_size=vocab_size,
                 num_heads=num_heads,

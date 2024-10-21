@@ -45,6 +45,106 @@ class Head(nn.Module):
         return out
 
 
+class MultiHeadDifferentialAttention(nn.Module):
+    """implements multi-head differential attention as shown in https://arxiv.org/pdf/2410.05258"""
+
+    def __init__(self, num_heads, n_embd, head_size, block_size, l_ix):
+        super().__init__()
+        self.n_embd = n_embd
+        self.num_heads = num_heads
+        self.head_size = head_size
+        self.block_size = block_size
+        self.l_ix = l_ix
+
+        self.key1 = (
+            nn.Parameter(torch.randn(num_heads, n_embd, head_size))
+            * (num_heads * n_embd) ** -0.5
+        )
+        self.key2 = (
+            nn.Parameter(torch.randn(num_heads, n_embd, head_size))
+            * (num_heads * n_embd) ** -0.5
+        )
+        self.query1 = (
+            nn.Parameter(torch.randn(num_heads, n_embd, head_size))
+            * (num_heads * n_embd) ** -0.5
+        )
+        self.query2 = (
+            nn.Parameter(torch.randn(num_heads, n_embd, head_size))
+            * (num_heads * n_embd) ** -0.5
+        )
+        self.value = (
+            nn.Parameter(torch.randn(num_heads, n_embd, head_size))
+            * (num_heads * n_embd) ** -0.5
+        )
+        self.initial_lambda = 0.8 - (0.6 * torch.exp(torch.tensor(-0.3 * (l_ix - 1))))
+        self.lambdas = nn.Parameter(torch.randn(4))  # [q1, k1, q2, k2]
+        self.proj = Linear(n_embd, n_embd)
+
+        # (B, T, n_embd) x (num_heads, n_embd, head_size) --> (B, num_heads, T, head_size)
+        self.register_buffer(
+            "tril", torch.tril(torch.ones(num_heads, block_size, block_size))
+        )
+
+    def forward(self, x):
+        """
+        x: (B, T, n_embd) tensor
+
+        returns: (B, T, n_embd) tensor
+
+
+        """
+
+        # Naming convention for the comments in the code:
+        # bs: batch size
+        # nh: number of heads
+        # cl: context length
+        # hs: head size
+        # ne: n_embd
+
+        B, T, C = x.shape
+        x = x.unsqueeze(1)  # (batch_size, 1, context_length, n_embd)
+
+        self.reparameterized_lambda = (
+            torch.exp(self.lambdas[0] * self.lambdas[1])
+            - torch.exp(self.lambdas[2] * self.lambdas[3])
+            + self.initial_lambda
+        )
+
+        k1 = x @ self.key1  # (batch_size, num_heads, context_length, head_size)
+        q1 = x @ self.query1  # (batch_size, num_heads, context_length, head_size)
+
+        k2 = x @ self.key2  # (batch_size, num_heads, context_length, head_size)
+        q2 = x @ self.query2  # (batch_size, num_heads, context_length, head_size)
+
+        s = 1 / torch.sqrt(torch.tensor(self.head_size))
+
+        wei1 = (q1 @ k1.transpose(-2, -1)).masked_fill(
+            self.tril[:, :T, :T] == 0, float("-inf")
+        ) * s
+        wei2 = (q2 @ k2.transpose(-2, -1)).masked_fill(
+            self.tril[:, :T, :T] == 0, float("-inf")
+        ) * s
+
+        wei1 = F.softmax(wei1, dim=-1)
+        wei2 = F.softmax(wei2, dim=-1)
+
+        wei = wei1 - self.reparameterized_lambda * wei2
+
+        v = x @ self.value  # (bs, 1, cl, ne) x (nh, ne, hs) -> (bs, nh, cl, hs)
+        out = wei @ v  # (bs, nh, cl, cl) x (bs, nh, cl, hs) -> (bs, nh, cl, hs)
+        out = out.transpose(1, 2)  # (bs, cl, nh, hs)
+        out = out.reshape(
+            out.size(0), out.size(1), self.n_embd
+        )  # (bs, cl, n_embd) = (B, T, C)
+
+        # scale the output with (1- self.initial_lambda) as its stated in the paper
+        out = out * (1 - self.initial_lambda)
+
+        out = self.proj(out)
+
+        return out
+
+
 class MultiHeadAttention(nn.Module):
     """implements multi-headed masked self-attention using tensor operations"""
 
@@ -159,6 +259,32 @@ class FeedForwardBlock(nn.Module):
 class ReLU(nn.Module):
     def forward(self, x):
         return (x > 0) * x
+
+
+class DecoderDifferentialTransformerBlock(nn.Module):
+    def __init__(self, num_heads, n_hidden, context_length, l_ix=None):
+        super().__init__()
+        # using multiple heads will let us to provide more
+        # communication channels between the tokens
+        # but there's a caveat, the implementation downscales
+        # the attention layers' dimensions, resulting in
+        # more condensed communication channels.
+        self.head_size = n_hidden // num_heads
+        self.self_attn = MultiHeadDifferentialAttention(
+            num_heads, n_hidden, self.head_size, context_length, l_ix
+        )
+        self.ffwd_net = FeedForwardBlock(n_hidden)
+        self.ln1 = LayerNorm(n_hidden)
+        self.ln2 = LayerNorm(n_hidden)
+
+    def forward(self, x):
+        # add the residual connections and normalize given inputs
+        # just as in the paper.
+        x = x + self.self_attn(self.ln1(x))
+        x = x + self.ffwd_net(self.ln2(x))
+        out = x
+
+        return out
 
 
 class DecoderTransformerBlock(nn.Module):
@@ -488,7 +614,9 @@ class GPT(nn.Module):
         B, T = idx.shape
 
         tok_emb = self.token_embeddings_table(idx)  # (B, T, n_embd)
-        pos_emb = self.pos_embeddings_table(torch.arange(T))  # (T, n_embd)
+        pos_emb = self.pos_embeddings_table(
+            torch.arange(T, device=idx.device)
+        )  # (T, n_embd)
         x = tok_emb + pos_emb  # (B, T, n_embd)
         x = self.blocks(x)  # (B, T, n_embd)
         x = self.ln_f(x)  # (B, T, n_embd)
@@ -518,3 +646,29 @@ class GPT(nn.Module):
             idx = torch.concat([idx, next_idx], dim=-1)  # (B, T+1)
 
         return idx
+
+
+class GPDT(GPT):
+    """GPT implementation extended to include differential attention in https://arxiv.org/pdf/2410.05258"""
+
+    def __init__(self, n_embd, vocab_size, num_heads, num_blocks, block_size):
+        super().__init__(n_embd, vocab_size, num_heads, num_blocks, block_size)
+
+        self.n_embd = n_embd
+        self.vocab_size = vocab_size
+        self.num_heads = num_heads
+        self.num_blocks = num_blocks
+        self.block_size = block_size
+
+        self.token_embeddings_table = Embedding(vocab_size, n_embd)
+        self.pos_embeddings_table = Embedding(block_size, n_embd)
+        self.blocks = Sequential(
+            [
+                DecoderDifferentialTransformerBlock(
+                    num_heads, n_embd, context_length=block_size, l_ix=i
+                )
+                for i in range(1, num_blocks + 1)
+            ]
+        )
+        self.ln_f = LayerNorm(n_embd)
+        self.ln_head = Linear(n_embd, vocab_size)
