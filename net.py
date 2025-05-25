@@ -186,6 +186,9 @@ class MultiHeadAttention(BaseLayer):
         wei = wei.masked_fill(self.tril[:, :T, :T] == 0, float("-inf"))
         wei = F.softmax(wei, dim=-1)  # (bs, nh, cl, cl)
 
+        if hasattr(self, 'log_outputs') and self.log_outputs:
+            self.attn_weights_viz = wei.detach() # Save for visualization
+
         v = x @ self.value  # (bs, 1, cl, ne) x (nh, ne, hs) -> (bs, nh, cl, hs)
         out = wei @ v  # (bs, nh, cl, cl) x (bs, nh, cl, hs) -> (bs, nh, cl, hs)
         out = out.transpose(1, 2)  # (bs, cl, nh, hs)
@@ -604,7 +607,7 @@ class HierarchicalMLP(BaseLayer):
         for title, out, ax in zip(titles, outs, axs.flatten()):
             ax.set_title(title)
             ax.hist(out.view(-1).tolist(), 50)
-        plt.savefig(f"{save_path}/layer_output_histograms_{save_affix}.png")
+        # plt.savefig(f"{save_path}/layer_output_histograms_{save_affix}.png") # Commented out as this is now handled by utils.plot_layer_output_histograms
 
         self.train()
         return
@@ -617,32 +620,70 @@ class HierarchicalMLP(BaseLayer):
         ndims=1,
         tokenizer=None,
     ):
-        assert ndims < 2, "ndims must be 1 or 2 for plotting the embeddings"
-        pca = PCA(n_components=ndims)
-        weights = pca.fit_transform(self.model.layers[0].weight.detach().numpy())
-
-        plt.figure(figsize=(self.n_embed // 5, 10))
-        plt.title("Embedding weights")
-        if tokenizer is not None:
-            tokens = tokenizer.itos
+        assert ndims == 1 or ndims == 2, "ndims must be 1 or 2 for plotting the embeddings"
+        
+        embedding_tensor = self.model.layers[0].weight.detach().cpu().numpy()
+        if embedding_tensor.shape[1] > ndims:
+            pca = PCA(n_components=ndims)
+            weights = pca.fit_transform(embedding_tensor)
         else:
-            tokens = {i: i for i in range(self.vocab_size)}
+            # If original embedding dim is <= ndims, use original weights (or up to original dim)
+            weights = embedding_tensor[:, :ndims]
+
+        # Prepare token labels
+        token_labels = {}
+        if tokenizer is not None and hasattr(tokenizer, 'itos'):
+            # Ensure tokenizer.itos provides a list/dict of characters/strings
+            # If itos is a dictionary {index: token_char}
+            token_labels = {i: tokenizer.itos.get(i, str(i)) for i in range(self.vocab_size)}
+        else:
+            token_labels = {i: str(i) for i in range(self.vocab_size)}
+        
+        # Ensure weights match vocab_size for consistent indexing with token_labels
+        if weights.shape[0] != self.vocab_size:
+            print(f"Warning: PCA transformed weights count ({weights.shape[0]}) does not match vocab_size ({self.vocab_size}). Truncating/padding may occur in labels.")
+            # Adjust token_labels to match weights length if necessary, though ideally they should match.
+            # This case should be rare if vocab_size is correct for the embedding layer.
+
+        path = Path(save_path)
+        os.makedirs(path, exist_ok=True)
+        filename = path / f"HierarchicalMLP_embedding_weights_{save_affix}_pca{ndims}d.png"
 
         if ndims == 1:
-            plt.imshow(weights.T, cmap="gray", interpolation="nearest")
-            # set the x-axis labels
-            plt.xticks(range(self.vocab_size), tokens.values())
-
+            plt.figure(figsize=(max(10, int(self.vocab_size * 0.5)), 6))
+            plt.bar(range(weights.shape[0]), weights[:, 0] if weights.ndim > 1 else weights)
+            
+            # Prepare x-tick labels carefully
+            tick_positions = range(weights.shape[0])
+            tick_labels_list = [token_labels.get(i, str(i)) for i in tick_positions]
+            
+            plt.xticks(tick_positions, tick_labels_list, rotation=90, fontsize=8)
+            plt.ylabel(f"1st Principal Component Value")
+            plt.title(f"HierarchicalMLP Embedding Weights (1D PCA)\n{save_affix}")
+            
             if plot_text:
-                for i in range(len(self.vocab_size)):
-                    plt.text(i, 0, weights[i, 0])
-        else:
-            plt.scatter(weights[:, 0], weights[:, 1])
+                for i in range(weights.shape[0]):
+                    val = weights[i, 0] if weights.ndim > 1 else weights[i]
+                    plt.text(i, val, tick_labels_list[i], ha='center', va='bottom' if val >= 0 else 'top', fontsize=7)
+        
+        else: # ndims == 2
+            plt.figure(figsize=(10, 8))
+            plt.scatter(weights[:, 0], weights[:, 1], alpha=0.7)
+            plt.xlabel("1st Principal Component")
+            plt.ylabel("2nd Principal Component")
+            plt.title(f"HierarchicalMLP Embedding Weights (2D PCA)\n{save_affix}")
+            
             if plot_text:
-                for i in range(self.vocab_size):
-                    plt.text(weights[i, 0], weights[i, 1], tokens[i])
-        plt.savefig(f"{save_path}/embedding_weights_{save_affix}.png")
-
+                for i in range(weights.shape[0]):
+                    # Ensure we use the correct label for the i-th point
+                    label = token_labels.get(i, str(i))
+                    plt.text(weights[i, 0], weights[i, 1], label, fontsize=8)
+        
+        plt.grid(True, alpha=0.3)
+        plt.tight_layout()
+        plt.savefig(filename)
+        plt.close()
+        print(f"Saved HierarchicalMLP embedding weights plot to {filename}")
         return
 
 
@@ -731,51 +772,7 @@ class MLP(BaseLayer):
         self.train()
         return idx
 
-    def get_layer_output_histograms(
-        self,
-        sample_input: torch.Tensor = None,
-        save_affix: str = "pretraining",
-        save_path: str = "artifacts",
-    ):
-        if sample_input is None:
-            sample_input = torch.randint(
-                0, self.vocab_size - 1, (1, self.block_size), dtype=torch.long
-            )
-        self.eval()
-        self.start_debug()
-        self(sample_input)
-
-        layer_counts = {}
-        for i in range(len(self.layers)):
-            name = self.layers[i].__class__.__name__
-            layer_counts[name] = layer_counts.get(name, 0) + 1
-
-        plot_titles = ["Embedding"]
-
-        # add the counts of each layer
-        for i in range(len(self.layers)):
-            name = self.layers[i].__class__.__name__
-            plot_titles.append(f"{name} {layer_counts[name]}")
-            layer_counts[name] -= 1
-
-        # generate a (L//3 + 2)x3 grid of subplots,
-        # so every row will have 3 subplots, plus one row for the embeddings
-        fig, axs = plt.subplots(len(self.layers) // 3 + 2, 3, figsize=(15, 5))
-
-        # plot the embedding outputs
-        ax = axs[0, 0]
-        ax.set_title("Embedding")
-        ax.hist(self.embedding.out.view(-1).tolist(), 50)
-
-        # plot the layer outputs
-        for title, layer, ax in zip(plot_titles[1:], self.layers, axs.flatten()[1:]):
-            ax.set_title(title)
-            ax.hist(layer.out.view(-1).tolist(), 50)
-        plt.savefig(f"{save_path}/layer_output_histograms_{save_affix}.png")
-        self.stop_debug()
-        self.train()
-
-        return
+    # Removed get_layer_output_histograms, as it's now consolidated in utils.py
 
     def plot_emb_weights(
         self,
@@ -785,30 +782,61 @@ class MLP(BaseLayer):
         ndims=1,
         tokenizer=None,
     ):
-        assert ndims < 2, "ndims must be 1 or 2 for plotting the embeddings"
-        pca = PCA(n_components=ndims)
-        weights = pca.fit_transform(self.embedding.weight.detach().numpy())
-        plt.figure(figsize=(self.n_embed // 5, 10))
-        plt.title("Embedding weights")
-        if tokenizer is not None:
-            tokens = tokenizer.itos
+        assert ndims == 1 or ndims == 2, "ndims must be 1 or 2 for plotting the embeddings"
+
+        embedding_tensor = self.embedding.weight.detach().cpu().numpy()
+        if embedding_tensor.shape[1] > ndims:
+            pca = PCA(n_components=ndims)
+            weights = pca.fit_transform(embedding_tensor)
         else:
-            tokens = {i: i for i in range(self.vocab_size)}
+            weights = embedding_tensor[:, :ndims]
+
+        token_labels = {}
+        if tokenizer is not None and hasattr(tokenizer, 'itos'):
+            token_labels = {i: tokenizer.itos.get(i, str(i)) for i in range(self.vocab_size)}
+        else:
+            token_labels = {i: str(i) for i in range(self.vocab_size)}
+
+        if weights.shape[0] != self.vocab_size:
+            print(f"Warning: PCA transformed weights count ({weights.shape[0]}) does not match vocab_size ({self.vocab_size}).")
+
+        path = Path(save_path)
+        os.makedirs(path, exist_ok=True)
+        filename = path / f"MLP_embedding_weights_{save_affix}_pca{ndims}d.png"
 
         if ndims == 1:
-            plt.imshow(weights.T, cmap="gray", interpolation="nearest")
-            # set the x-axis labels
-            plt.xticks(range(self.vocab_size), tokens.values())
-            if plot_text:
-                for i in range(len(weights)):
-                    plt.text(i, 0, str(i))
-        else:
-            plt.scatter(weights[:, 0], weights[:, 1])
-            if plot_text:
-                for i in range(len(weights)):
-                    plt.text(weights[i, 0], weights[i, 1], str(i))
-        plt.savefig(f"{save_path}/embedding_weights_{save_affix}.png")
+            plt.figure(figsize=(max(10, int(self.vocab_size * 0.5)), 6))
+            plt.bar(range(weights.shape[0]), weights[:, 0] if weights.ndim > 1 else weights)
+            
+            tick_positions = range(weights.shape[0])
+            tick_labels_list = [token_labels.get(i, str(i)) for i in tick_positions]
+            
+            plt.xticks(tick_positions, tick_labels_list, rotation=90, fontsize=8)
+            plt.ylabel("1st Principal Component Value")
+            plt.title(f"MLP Embedding Weights (1D PCA)\n{save_affix}")
 
+            if plot_text:
+                for i in range(weights.shape[0]):
+                    val = weights[i, 0] if weights.ndim > 1 else weights[i]
+                    plt.text(i, val, tick_labels_list[i], ha='center', va='bottom' if val >= 0 else 'top', fontsize=7)
+        
+        else: # ndims == 2
+            plt.figure(figsize=(10, 8))
+            plt.scatter(weights[:, 0], weights[:, 1], alpha=0.7)
+            plt.xlabel("1st Principal Component")
+            plt.ylabel("2nd Principal Component")
+            plt.title(f"MLP Embedding Weights (2D PCA)\n{save_affix}")
+
+            if plot_text:
+                for i in range(weights.shape[0]):
+                    label = token_labels.get(i, str(i))
+                    plt.text(weights[i, 0], weights[i, 1], label, fontsize=8)
+        
+        plt.grid(True, alpha=0.3)
+        plt.tight_layout()
+        plt.savefig(filename)
+        plt.close()
+        print(f"Saved MLP embedding weights plot to {filename}")
         return
 
 
@@ -979,51 +1007,71 @@ class GPT(BaseLayer):
         Returns:
         None. Displays the heatmaps using matplotlib.
         """
-        assert os.path.exists(save_path), "The save path does not exist."
-        if plot_text:
-            print(
-                Warning(
-                    "Plotting text on the heatmaps may not be feasible for large embeddings. (WIP feature)"
-                )
-            )
-
-        fig, axs = plt.subplots(2, 1, figsize=(25, 15))
         path = Path(save_path)
-        weights = [self.pos_embeddings_table.weight, self.token_embeddings_table.weight]
-        font_sizes = [3, 4]
-        # apply PCA to the weights
-        pca = PCA(n_components=1)  # reduce to 1D
-        # apply PCA to the weights
-        weights = [pca.fit_transform(weight.detach().numpy()) for weight in weights]
-        titles = ["Positional embeddings (weight)", "Token embeddings (weight)"]
+        os.makedirs(path, exist_ok=True)
+        
+        embedding_tables = {
+            "token_embeddings": self.token_embeddings_table.weight,
+            "positional_embeddings": self.pos_embeddings_table.weight,
+        }
+        
+        num_tables = len(embedding_tables)
+        fig, axs = plt.subplots(num_tables, 1, figsize=(max(12, self.vocab_size // 3), 6 * num_tables))
+        if num_tables == 1: # if only one embedding table for some reason
+            axs = [axs]
 
-        for ix, (title, weight, ax, font_size) in enumerate(
-            zip(titles, weights, axs.flatten(), font_sizes)
-        ):
-            ax.set_title(title)
-            ax.imshow(weight.T, cmap="gray", interpolation="nearest")
-            #
-            if tokenizer is not None and ix == 1:
-                # set the token names to x-axis
-                ax.set_xticks(range(tokenizer.vocab_size))
-                ax.set_xticklabels(tokenizer.itos.values())
+        plot_idx = 0
+        for name, emb_weight_tensor in embedding_tables.items():
+            ax = axs[plot_idx]
+            original_weights = emb_weight_tensor.detach().cpu().numpy()
+            
+            # Always use 1D PCA for GPT embeddings as per original logic, but make it robust
+            pca_dim = 1
+            if original_weights.shape[1] > pca_dim:
+                pca = PCA(n_components=pca_dim)
+                transformed_weights = pca.fit_transform(original_weights)
+            else: # If original embedding dim is already 1 or less
+                transformed_weights = original_weights[:, :pca_dim]
 
+            data_to_plot = transformed_weights[:, 0] if transformed_weights.ndim > 1 else transformed_weights.flatten()
+            num_elements = len(data_to_plot)
+            
+            ax.bar(range(num_elements), data_to_plot)
+            ax.set_ylabel("1st Principal Component Value")
+            ax.set_title(f"GPT {name.replace('_', ' ').title()} (1D PCA)\n{save_affix}")
+
+            tick_labels_list = []
+            if name == "token_embeddings":
+                if tokenizer is not None and hasattr(tokenizer, 'itos'):
+                    tick_labels_list = [tokenizer.itos.get(i, str(i)) for i in range(num_elements)]
+                else:
+                    tick_labels_list = [str(i) for i in range(num_elements)]
+                # Adjust font size for token labels if many tokens
+                xtick_fontsize = 8 if num_elements < 50 else (6 if num_elements < 100 else 4)
+                ax.set_xticks(range(num_elements))
+                ax.set_xticklabels(tick_labels_list, rotation=90, fontsize=xtick_fontsize)
+
+            elif name == "positional_embeddings":
+                tick_labels_list = [str(i) for i in range(num_elements)] # Positional indices
+                ax.set_xticks(range(num_elements))
+                ax.set_xticklabels(tick_labels_list, rotation=0, fontsize=8)
+            
             if plot_text:
-                for x in range(weight.shape[0]):
-                    for y in range(weight.shape[1]):
-                        ax.text(
-                            x,
-                            y,
-                            f"{weight[x, y]:.2f}",
-                            color="red",
-                            ha="center",
-                            va="center",
-                            fontsize=font_size,
-                        )
+                text_fontsize = 7 if num_elements < 50 else (5 if num_elements < 100 else 3)
+                for i in range(num_elements):
+                    label = tick_labels_list[i] if tick_labels_list else str(i)
+                    ax.text(i, data_to_plot[i], label, ha='center', 
+                            va='bottom' if data_to_plot[i] >= 0 else 'top', fontsize=text_fontsize)
+            
+            ax.grid(True, axis='y', alpha=0.3)
+            plot_idx += 1
 
-        plt.suptitle("Embedding heatmaps")
-        fig.savefig(path / f"embedding_heatmaps_{save_affix}.png")
-
+        plt.tight_layout(rect=[0, 0, 1, 0.97]) # Adjust for suptitle
+        fig.suptitle(f"GPT Embedding Weights Visualizations ({save_affix})", fontsize=16)
+        filename = path / f"GPT_embedding_weights_{save_affix}_pca1d.png"
+        plt.savefig(filename)
+        plt.close(fig)
+        print(f"Saved GPT embedding weights plot to {filename}")
         return
 
     def plot_attn_heatmaps(
@@ -1034,87 +1082,118 @@ class GPT(BaseLayer):
         save_path: str = "artifacts",
     ):
         """
-        Plot heatmaps of attention weights for each layer and head.
+        Plot heatmaps of softmaxed attention weights for each layer and head.
+        This function visualizes the actual attention distributions (post-softmax)
+        used by each attention head in each DecoderTransformerBlock.
 
-        This function visualizes the attention weights for each attention head
-        in each layer of the model.
+        It assumes that `model.start_debug()` has been called and a forward pass
+        (e.g., via `model(sample_input)`) has occurred, so that MultiHeadAttention
+        layers have populated their `attn_weights_viz` attribute.
 
         Args:
-        model (GPT): The GPT model instance
-        sample_input (torch.Tensor, optional): Input tensor to use. If None, random input is generated.
-        plot_text (bool, optional): If True, overlay attention values on the heatmap. Defaults to False.
+        sample_input (torch.Tensor, optional): A sample input tensor. While the function
+            primarily relies on pre-populated `attn_weights_viz`, this input can be
+            used by other plotting functions or if a fresh forward pass is needed
+            (though current design expects `attn_weights_viz` to be ready).
+            If None, and `attn_weights_viz` is not found, the function may not plot.
+        plot_text (bool, optional): If True, overlay attention probability values on the heatmap.
+        save_affix (str): Affix for the saved plot filename.
+        save_path (str): Directory to save the plot.
 
         Returns:
-        None. Displays the heatmaps using matplotlib.
+        None. Displays and saves the heatmaps.
         """
-        assert os.path.exists(save_path), "The save path does not exist."
-        if plot_text:
-            print(
-                Warning(
-                    "Plotting text on the heatmaps may not be feasible for large embeddings. (WIP feature)"
-                )
-            )
-
-        if sample_input is None:
-            sample_input = torch.randint(
-                0, self.vocab_size - 1, (1, self.block_size), dtype=torch.long
-            )
-
-        attention_outputs = []
-        out = self.token_embeddings_table(sample_input) + self.pos_embeddings_table(
-            torch.arange(self.block_size)
-        )
-
-        for i, dtb in enumerate(self.blocks.layers):
-            k = out @ dtb.self_attn.key
-            q = out @ dtb.self_attn.query
-            w = (q @ k.transpose(-2, -1)) * (
-                dtb.self_attn.head_size**-0.5
-            )  # (num_heads, T, T)
-            w = w.detach()  # (num_heads, T, T)
-
-            attention_outputs.append(w)
-
-            out = dtb(out)
-
-        attention_outputs = [
-            [w[head_ix, :, :] for head_ix in range(self.num_heads)]
-            for w in attention_outputs
-        ]
-
-        # plot the heatmaps
-        font_size = self.num_heads
-        figsize = (int(7.5 * self.num_heads), int(5 * self.num_heads))
         path = Path(save_path)
+        os.makedirs(path, exist_ok=True)
 
-        fig, axs = plt.subplots(
-            len(self.blocks.layers), self.num_heads, figsize=figsize
-        )
-        for i, dtb_attn_out in enumerate(attention_outputs):
-            for j, attn_head_out in enumerate(dtb_attn_out):
-                # normalize the attention weights
-                plot_data = attn_head_out.detach().abs()
-                plot_data /= plot_data.max()
-                # plot the heatmap
-                axs[i, j].imshow(
-                    plot_data.numpy(), cmap="gray", interpolation="nearest"
-                )
-                axs[i, j].set_title(f"DecoderTransformerBlock {i+1} Head {j+1}")
-                # text annotations
-                if plot_text:
-                    for x in range(plot_data.size(0)):
-                        for y in range(plot_data.size(1)):
-                            axs[i, j].text(
-                                y,
-                                x,
-                                f"{plot_data[x, y] * 100:.0f}",
-                                color="red",
-                                ha="center",
-                                va="center",
-                                fontsize=font_size,
-                            )
+        if not (hasattr(self, 'log_outputs') and self.log_outputs):
+            print("Warning: `plot_attn_heatmaps` called but model.log_outputs is False. "
+                  "Attention weights might not be available in `attn_weights_viz`."
+                  "Ensure model.start_debug() was called and a forward pass occurred.")
 
-        plt.suptitle("Attention heatmaps")
-        fig.savefig(path / f"attention_heatmaps_{save_affix}.png")
+        # Ensure sample_input is on the correct device if provided and used for a new fwd pass
+        # However, the primary goal is to use already populated .attn_weights_viz
+        if sample_input is not None:
+            device = next(self.parameters()).device # Get model's device
+            sample_input = sample_input.to(device)
+            # Trigger a forward pass to ensure attn_weights_viz are populated if not already
+            # This is a bit redundant if main.py's debug block already did a forward pass
+            # but makes the function more robust if called standalone after start_debug().
+            with torch.no_grad():
+                 self(sample_input) # This ensures MultiHeadAttention layers are run
 
+        num_blocks = len(self.blocks.layers)
+        if num_blocks == 0 or not isinstance(self.blocks.layers[0].self_attn, MultiHeadAttention):
+            print("No suitable DecoderTransformerBlocks with MultiHeadAttention found.")
+            return
+            
+        num_heads = self.blocks.layers[0].self_attn.num_heads
+        
+        # Determine figure size dynamically
+        # Max width of 20 inches, height based on number of blocks
+        fig_width = min(20, 5 * num_heads) 
+        fig_height = min(20, 4 * num_blocks if num_blocks > 1 else 5) # Slightly more height for single block
+
+        fig, axs = plt.subplots(num_blocks, num_heads, figsize=(fig_width, fig_height), squeeze=False)
+        
+        plotted_anything = False
+        for i, dtb in enumerate(self.blocks.layers):
+            if not isinstance(dtb.self_attn, MultiHeadAttention) or \
+               not hasattr(dtb.self_attn, 'attn_weights_viz') or \
+               dtb.self_attn.attn_weights_viz is None:
+                print(f"Skipping DecoderTransformerBlock {i+1}, no 'attn_weights_viz' found or layer is not MultiHeadAttention.")
+                for j in range(num_heads): # Still need to handle axs if skipping
+                    axs[i,j].set_title(f"Block {i+1} Head {j+1}\n(No data)")
+                    axs[i,j].text(0.5, 0.5, "No data", ha="center", va="center", transform=axs[i,j].transAxes)
+                continue
+
+            # attn_weights_viz has shape (B, num_heads, T, T)
+            # sample_input is (1, T), so B=1. Squeeze the batch dim.
+            head_weights_all_heads = dtb.self_attn.attn_weights_viz.squeeze(0).cpu().numpy() # Shape: (num_heads, T, T)
+            
+            context_len = head_weights_all_heads.shape[-1] # Should be T
+
+            for j in range(num_heads):
+                ax = axs[i, j]
+                if j < head_weights_all_heads.shape[0]:
+                    plot_data = head_weights_all_heads[j, :, :] # Shape: (T, T)
+                    
+                    im = ax.imshow(plot_data, cmap="viridis", interpolation="nearest", vmin=0, vmax=1) # Softmax output is [0,1]
+                    ax.set_title(f"Block {i+1} Head {j+1}", fontsize=10)
+                    
+                    # Add colorbar for context
+                    # fig.colorbar(im, ax=ax, orientation='vertical', fraction=0.046, pad=0.04)
+
+
+                    if plot_text and context_len <= 20: # Only plot text for smaller contexts for legibility
+                        text_fontsize = max(2, 10 - context_len // 2) # Adaptive font size
+                        for row in range(context_len):
+                            for col in range(context_len):
+                                ax.text(col, row, f"{plot_data[row, col]*100:.0f}",
+                                        color="white" if plot_data[row, col] < 0.5 else "black", # Contrast for text
+                                        ha="center", va="center", fontsize=text_fontsize)
+                    plotted_anything = True
+                else: # Should not happen if num_heads is consistent
+                    ax.set_title(f"Block {i+1} Head {j+1}\n(Error)")
+                    ax.text(0.5, 0.5, "Head index error", ha="center", va="center", transform=ax.transAxes)
+
+                # Set axis ticks for clarity (optional, can be noisy)
+                # ax.set_xticks(torch.arange(context_len))
+                # ax.set_yticks(torch.arange(context_len))
+                # ax.set_xlabel("Key Positions")
+                # ax.set_ylabel("Query Positions")
+
+
+        if not plotted_anything:
+            print("No attention weights were plotted. Check debug state and forward pass.")
+            plt.close(fig)
+            return
+
+        fig.suptitle(f"GPT Attention Heatmaps (Softmaxed Weights) - {save_affix}", fontsize=14)
+        plt.tight_layout(rect=[0, 0, 1, 0.96]) # Adjust layout for suptitle
+        
+        filename = path / f"GPT_attention_heatmaps_{save_affix}.png"
+        plt.savefig(filename)
+        plt.close(fig)
+        print(f"Saved GPT attention heatmaps to {filename}")
         return

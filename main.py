@@ -11,9 +11,11 @@ from utils import (
     get_baseline_score,
     load_artifact,
     plot_aoc_ratio,
-    plot_grad2data_ratio,
+    # plot_grad2data_ratio, # Renamed to plot_parameter_gradient_distributions
+    plot_parameter_gradient_distributions,
     plot_layer_grads,
-    plot_layer_outputs,
+    # plot_layer_outputs, # Old function, replaced by plot_layer_output_histograms
+    plot_layer_output_histograms,
     save_artifacts,
     save_loss_figures,
     train_loop,
@@ -203,11 +205,37 @@ if __name__ == "__main__":
 
         if args["debug"]:
             get_baseline_score(tokenizer.vocab_size)
-            model.get_layer_output_histograms(
-                save_affix="pretraining",
-                save_path=args["save_path"],
-            )
-            model.plot_emb_weights(
+            # For pre-training histograms, we need to ensure .out attributes are populated.
+            # This requires model.start_debug() and a forward pass.
+            model.start_debug()
+            # Create a dummy input based on model type for the forward pass
+            dummy_input = None
+            if args["model"] == "gpt":
+                dummy_input = torch.randint(0, vocab_size, (1, args["block_size"]), device=args["device"])
+            elif args["model"] == "mlp":
+                dummy_input = torch.randint(0, vocab_size, (args["batch_size"] if args["batch_size"] > 0 else 1, args["block_size"]), device=args["device"])
+            elif args["model"] == "hmlp":
+                dummy_input = torch.randint(0, vocab_size, (args["batch_size"] if args["batch_size"] > 0 else 1, args["block_size"]), device=args["device"])
+
+            if dummy_input is not None:
+                model.to(args["device"]) # Ensure model is on the right device
+                try:
+                    if args["model"] == "gpt":
+                        _ = model(dummy_input) # GPT returns logits, loss (loss is None if no target)
+                    else: # MLP, HMLP
+                         _ = model(dummy_input) # These models also return logits, loss
+                except Exception as e:
+                    print(f"Error during dummy forward pass for pre-training histograms: {e}")
+                plot_layer_output_histograms(
+                    model,
+                    save_affix="pretraining",
+                    save_path=args["save_path"]
+                )
+                # model.stop_debug() # train_loop will manage debug state
+            else:
+                print("Could not create dummy input for pre-training histograms for model type:", args["model"])
+
+            model.plot_emb_weights( # This function might also need similar handling if it relies on .out from specific layers
                 save_affix="pretraining",
                 plot_text=False,
                 save_path=args["save_path"],
@@ -236,18 +264,16 @@ if __name__ == "__main__":
         )
 
         if args["debug"]:
-            plot_layer_outputs(model)
-            plot_layer_grads(model)
-            plot_grad2data_ratio(model)
-            plot_aoc_ratio(ratios, model)
+            # plot_layer_outputs(model) # This was the old function call
+            plot_layer_output_histograms(model, save_affix="results_after_training", save_path=args["save_path"])
+            plot_layer_grads(model, save_path=args["save_path"], save_affix="results_after_training") # Updated call
+            plot_parameter_gradient_distributions(model, save_path=args["save_path"]) # Updated function call
+            plot_aoc_ratio(ratios, model, save_path=args["save_path"]) # Added save_path
 
             save_loss_figures(train_losses, valid_losses, save_path=args["save_path"])
-            model.get_layer_output_histograms(
-                save_affix="results",
-                save_path=args["save_path"],
-            )
+            # The call to model.get_layer_output_histograms for "results" is now covered by the plot_layer_output_histograms above.
             model.plot_emb_weights(
-                save_affix="results", plot_text=False, save_path=args["save_path"]
+                save_affix="results", plot_text=False, save_path=args["save_path"] # This is fine
             )
             if args["model"] == "gpt":
                 model.plot_attn_heatmaps(
