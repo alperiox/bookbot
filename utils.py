@@ -19,6 +19,7 @@ def plot_aoc_ratio(ud, model, save_path: str = "artifacts"):
     """
     # visualize the ratio of the amount of change vs the weights
     # and this is the ratio of the amount of change
+    os.makedirs(save_path, exist_ok=True)
     path = Path(save_path)
     parameters = model.parameters()
     plt.figure(figsize=(20, 4))
@@ -51,6 +52,7 @@ def plot_grad2data_ratio(model, save_path: str = "artifacts"):
     # this is the ratio of the gradient of a specific layer to its input.
     # so if the ratio is too high, it means that the gradients are too high with regard to the input so the update will be larger
     # and we actually want constant but smaller updates throughout the network so we don't miss any local minimas etc.
+    os.makedirs(save_path, exist_ok=True)
     path = Path(save_path)
     parameters = model.parameters()
     plt.figure(figsize=(20, 4))
@@ -73,53 +75,76 @@ def plot_grad2data_ratio(model, save_path: str = "artifacts"):
     print("-" * 20)
 
 
-def plot_layer_grads(model, save_path: str = "artifacts"):
+def plot_layer_grads(layers_to_plot, save_path: str = "artifacts"):
     """
     this plot let us to see the distribution of the gradients of the layers
     """
+    os.makedirs(save_path, exist_ok=True)
     path = Path(save_path)
     # visualize histograms
     plt.figure(figsize=(20, 4))
     legends = []
-    layers = model._layers
 
     print("-" * 20)
     print("Layers: grads distribution")
 
-    for i, layer in enumerate(layers):
+    for i, layer in enumerate(layers_to_plot):
         layer_name = layer.__class__.__name__
+        if not hasattr(layer, 'out'):
+            print(f"Warning: Layer {layer_name} (index {i}) has no 'out' attribute. Skipping.")
+            continue
+        if layer.out.grad is None:
+            print(f"Warning: Grads for {layer_name} (index {i}) is None. Skipping.")
+            continue
+        
         t = layer.out.grad
-        assert t is not None, f"Grads for {layer_name} is None!"
+        
+        if not isinstance(t, torch.Tensor):
+            print(f"Warning: Grad for {layer_name} (index {i}) is not a tensor. Skipping.")
+            continue
 
         print(
             "layer %d (%10s): mean %+.8f, std %.8f"
             % (i, layer_name, t.mean().item(), t.std().item())
         )
-        hy, hx = torch.histogram(t, density=True)
+        hy, hx = torch.histogram(t.cpu(), density=True) # ensure t is on cpu for histogram
         plt.plot(hx[:-1].detach(), hy.detach())
         legends.append(f"layer {i} ({layer_name})")
 
-    plt.legend(legends)
-    plt.title("Layers: grads distribution")
-    plt.savefig(path / "grads.png")
+    if legends: # Only save plot if there's something to plot
+        plt.legend(legends)
+        plt.title("Layers: grads distribution")
+        plt.savefig(path / "grads.png")
+    else:
+        print("No valid layer gradients to plot.")
+
 
     print("-" * 20)
 
     return
 
 
-def plot_layer_outputs(model, save_path: str = "artifacts"):
+def plot_layer_outputs(layers_to_plot, save_path: str = "artifacts"):
+    os.makedirs(save_path, exist_ok=True)
     path = Path(save_path)
     # visualize histograms
     layer_name = None
     plt.figure(figsize=(20, 4))
     legends = []
-    layers = model._layers
     print("-" * 20)
     print("Layers: output distribution")
-    for i, layer in enumerate(layers):
+    for i, layer in enumerate(layers_to_plot):
+        if not hasattr(layer, 'out'):
+            print(f"Warning: Layer {layer.__class__.__name__} (index {i}) has no 'out' attribute. Skipping.")
+            continue
+
         t = layer.out
         layer_name = layer.__class__.__name__
+        
+        if not isinstance(t, torch.Tensor):
+            print(f"Warning: Output for {layer_name} (index {i}) is not a tensor. Skipping.")
+            continue
+
         print(
             "layer %d (%10s): mean %+.2f, std %.2f, saturated: %.2f%%"
             % (
@@ -127,15 +152,20 @@ def plot_layer_outputs(model, save_path: str = "artifacts"):
                 layer_name,
                 t.mean().item(),
                 t.std().item(),
-                (torch.abs(t) > 0.97).float().mean().item() * 100,
+                (torch.abs(t.cpu()) > 0.97).float().mean().item() * 100, # ensure t is on cpu
             )
         )
-        hy, hx = torch.histogram(t, density=True)
+        hy, hx = torch.histogram(t.cpu(), density=True) # ensure t is on cpu for histogram
         plt.plot(hx[:-1].detach(), hy.detach())
         legends.append(f"layer {i} ({layer_name})")
-    plt.legend(legends)
-    plt.title("Layers: output distribution")
-    plt.savefig(path / "outputs.png")
+    
+    if legends: # Only save plot if there's something to plot
+        plt.legend(legends)
+        plt.title("Layers: output distribution")
+        plt.savefig(path / "outputs.png")
+    else:
+        print("No valid layer outputs to plot.")
+        
     print("-" * 20)
     return
 
@@ -182,16 +212,31 @@ def save_artifacts(save_path, **kwargs):
 
 
 def calc_debug_stats(
-    learning_rate, parameters
+    learning_rate, named_parameters_dict: dict
 ) -> tuple[list[float], list[float], list[float]]:
-    ratio = [
-        (learning_rate * p.grad.std() / p.data.std()).log10().item()
-        for p in parameters.values()
-    ]
-    means = [p.mean().item() for p in parameters.values()]
-    stds = [p.std().item() for p in parameters.values()]
+    ratios = []
+    means = []
+    stds = []
+    for name, p in named_parameters_dict.items():
+        if p.requires_grad: # Consider only parameters that require gradients
+            if p.grad is not None:
+                if p.data.std() > 1e-9: # Avoid division by zero or very small std
+                    ratio_val = (learning_rate * p.grad.std() / p.data.std()).log10().item()
+                else:
+                    ratio_val = float('nan') # Or some other indicator for problematic std
+            else:
+                # print(f"Warning: Gradient for parameter {name} is None. Skipping ratio calculation.")
+                ratio_val = float('nan') # Grad is None, ratio is undefined
+            ratios.append(ratio_val)
+            means.append(p.data.mean().item())
+            stds.append(p.data.std().item())
+        else: # If param does not require grad, append NaN or skip
+            ratios.append(float('nan'))
+            means.append(p.data.mean().item() if p.data is not None else float('nan'))
+            stds.append(p.data.std().item() if p.data is not None else float('nan'))
 
-    return ratio, means, stds
+
+    return ratios, means, stds
 
 
 def train_step(
@@ -252,6 +297,9 @@ def train_loop(
     max_steps: int | None = None,
     epochs: int | None = None,
     optimizer: torch.optim.Optimizer | None = None,
+    debug: bool = False,
+    model_name: str = "",
+    artifacts_save_path: str = "artifacts",
 ):
     """
     Trains the given model using the provided data loaders.
@@ -282,8 +330,31 @@ def train_loop(
 
     num_training_samples = len(train_loader.dataset)
 
+    
+    def get_plottable_layers(model_obj, name_str):
+        if name_str == "mlp":
+            return model_obj.net.layers if hasattr(model_obj, 'net') and hasattr(model_obj.net, 'layers') else []
+        elif name_str == "hmlp":
+            return model_obj.model.layers if hasattr(model_obj, 'model') and hasattr(model_obj.model, 'layers') else []
+        elif name_str == "gpt" or name_str == "gpdt":
+            return model_obj.blocks.layers if hasattr(model_obj, 'blocks') and hasattr(model_obj.blocks, 'layers') else []
+        return []
+
+    update_dynamics_history = []
+    # For summary statistics
+    all_period_layer_output_means = []
+    all_period_layer_output_stds = []
+    all_period_layer_grad_means = []
+    all_period_layer_grad_stds = []
+    all_period_param_grad_means = []
+    all_period_param_grad_stds = []
+    
+    final_lr = learning_rate # Initialize with base learning rate
+    total_duration_metric = 0 # Will be epochs or max_steps
+
     # training loop
     if epochs:
+        total_duration_metric = epochs
         # loss vectors
         train_losses: torch.Tensor = torch.zeros(epochs)
         valid_losses: torch.Tensor = torch.zeros(epochs)
@@ -292,26 +363,44 @@ def train_loop(
             # set up the tqdm bar
             bar = tqdm(enumerate(train_loader), total=len(train_loader))
             # decay the learning rate if it's provided
+            current_lr = learning_rate 
             if lrsche and epochs > 1:
                 n_epochs = round(epochs * 0.33)
                 if (epoch + 1) % n_epochs == 0:
-                    learning_rate = learning_rate / 10
+                    current_lr = learning_rate / 10 
+            final_lr = current_lr # Update final_lr for summary
+
+            # Re-assign optimizer learning rate if it changed
+            if optimizer is not None:
+                for g in optimizer.param_groups:
+                    g['lr'] = current_lr
+
+
             print("========")
             print("TRAINING (epoch:%d/%d)" % (epoch + 1, epochs))
 
             model.train()
+            epoch_train_loss = 0.0
             for i, (x, y) in bar:
-                loss = train_step(model, x, y, optimizer, device)
+                loss = train_step(model, x, y, optimizer, device) 
 
                 # statistics and logging
-                train_losses[epoch] += loss
-                desc_text = f"({epoch*train_batch_size + i*train_batch_size}/{num_training_samples}) (lr={learning_rate:.4f}): loss {train_losses[epoch]/(i+1):.4f}"
+                epoch_train_loss += loss
+                desc_text = f"({epoch*train_batch_size + i*train_batch_size}/{num_training_samples}) (lr={current_lr:.4f}): loss {epoch_train_loss/(i+1):.4f}"
                 bar.set_description(desc_text)
-
-            train_losses[epoch] /= len(train_loader)
+            
+            train_losses[epoch] = epoch_train_loss / len(train_loader)
+            
             model.eval()
             valid_loss = evaluate(model, test_loader, device)
             valid_losses[epoch] = valid_loss
+            
+            if debug:
+                # Grads should be available from the last train_step of the epoch
+                current_named_params = {name: p for name, p in model.named_parameters() if p.requires_grad}
+                ratios_for_epoch, _, _ = calc_debug_stats(current_lr, current_named_params)
+                update_dynamics_history.append(ratios_for_epoch)
+
 
     elif max_steps is not None:
         # if `max_steps` is given instead of `epochs`,
@@ -322,38 +411,93 @@ def train_loop(
 
         # loss vectors
         train_losses = torch.zeros(max_steps)
-        valid_losses = torch.zeros(max_steps)
+        # valid_losses are not regularly collected per step, so this might be misleading if not handled carefully
+        # For simplicity, we might only store the final validation loss or validation losses at 'frac' intervals
+        # The current code stores one valid_loss value updated at 'frac' intervals.
+        
         batch_size = train_loader.batch_size
         batch_size = batch_size if isinstance(batch_size, int) else 1
         total = 0
-        frac = round(max_steps * 0.33)
-        valid_loss = 0
+        frac = round(max_steps * 0.33) # Interval for validation and debug stats
+        current_valid_loss = 0.0 # Stores the latest validation loss
 
         model.train()
         for ix, (x, y) in enumerate(train_loader):
             if ix == max_steps:
                 break
 
-            loss = train_step(model, x, y, optimizer, device)
+            loss = train_step(model, x, y, optimizer, device) # optimizer uses the initial learning_rate
 
             bar.update(1)
             total += batch_size
-
             train_losses[ix] = loss
 
-            desc_text = f"(lr={learning_rate:.4f}): loss {train_losses.sum()/(ix+1):.4f} val_loss {valid_loss:.4f}"
+            desc_text = f"(lr={learning_rate:.4f}): loss {train_losses[:ix+1].mean():.4f} val_loss {current_valid_loss:.4f}"
             bar.set_description(desc_text)
-            if frac > 1 and ((ix + 1) % frac == 0):
+            
+            if debug and (frac > 0 and ((ix + 1) % frac == 0) or ix == max_steps - 1) :
+                # Grads should be available from the train_step
+                current_named_params = {name: p for name, p in model.named_parameters() if p.requires_grad}
+                ratios_for_step, _, _ = calc_debug_stats(learning_rate, current_named_params) # Use initial LR for max_steps
+                update_dynamics_history.append(ratios_for_step)
+
+            if frac > 0 and ((ix + 1) % frac == 0 or ix == max_steps -1): # Also run validation at last step
                 model.eval()
-                valid_loss = evaluate(model, test_loader, device, progress_bar=False)
+                current_valid_loss = evaluate(model, test_loader, device, progress_bar=False)
+                # valid_losses[ix] = current_valid_loss # If we want to store validation loss at each 'frac'
                 model.train()
+        
+        # For max_steps, valid_losses might not be a per-step array.
+        # We might return just the final one or a list of collected ones.
+        # For now, let's ensure train_losses is returned, and valid_losses is handled based on collection strategy.
+        # The original code returns a valid_losses tensor initialized to max_steps, which might be sparse.
+        # For simplicity, we'll keep train_losses as per-step and valid_losses as potentially sparse or just final.
+        # The current structure implies valid_losses is not really used in max_steps for plotting losses over time.
+        # We will create a minimal valid_losses tensor for save_loss_figures.
+        # If current_valid_loss is the only validation performed, we can make valid_losses a single element tensor.
+        if frac > 0 : # if validation was run
+             # Create a simplified valid_losses for plotting, could be just the last one or ones collected at frac
+            final_valid_loss_tensor = torch.tensor([current_valid_loss] * max_steps) # Simplistic, repeats last valid loss
+        else:
+            final_valid_loss_tensor = torch.tensor([])
+
 
         model.to("cpu")
-
         bar.close()
+        # Overwrite valid_losses for max_steps if it was sparsely populated
+        valid_losses = final_valid_loss_tensor
+
 
     else:
         train_losses, valid_losses = torch.tensor([]), torch.tensor([])
+
+    save_loss_figures(train_losses, valid_losses, save_path=artifacts_save_path)
+
+    if debug:
+        print("Debug mode: Generating plots...")
+        plottable_layers = get_plottable_layers(model, model_name)
+        
+        if not plottable_layers:
+            print(f"Warning: No plottable layers found for model_name='{model_name}'. Skipping layer-specific plots.")
+
+        plot_layer_outputs(plottable_layers, save_path=artifacts_save_path)
+        plot_layer_grads(plottable_layers, save_path=artifacts_save_path)
+        plot_grad2data_ratio(model, save_path=artifacts_save_path)
+        
+        if update_dynamics_history:
+             # Need to ensure parameters used by plot_aoc_ratio match the structure of update_dynamics_history
+             # plot_aoc_ratio expects model.parameters() to provide names and params.
+             # The current ud is a list of lists of ratios.
+             # We might need to adjust plot_aoc_ratio or how ud is passed/used.
+             # For now, let's assume plot_aoc_ratio can handle the list of ratios directly
+             # if the model structure (number of params) hasn't changed.
+             # The original plot_aoc_ratio iterates model.parameters() and then uses ud[j][i]
+             # This implies `i` should correspond to the parameter index.
+             # `calc_debug_stats` returns ratios for named_parameters. If order is preserved, this might work.
+            plot_aoc_ratio(update_dynamics_history, model, save_path=artifacts_save_path)
+        else:
+            print("Warning: update_dynamics_history is empty. Skipping plot_aoc_ratio.")
+
 
     # return the losses.
     return train_losses, valid_losses

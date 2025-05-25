@@ -252,9 +252,16 @@ if __name__ == "__main__":
             learning_rate=learning_rate,
             lrsche=lrsche,
             device=device,
+            debug=debug,
+            model_name=modelname,
+            artifacts_save_path=save_path,
         )
 
-        save_loss_figures(train_losses, valid_losses)
+        # save_loss_figures is now called inside train_loop if debug is False, 
+        # or at the end of other plots if debug is True.
+        # So, we can remove this call here, unless we want it duplicated.
+        # For now, let's assume train_loop handles it.
+        # save_loss_figures(train_losses, valid_losses, save_path=save_path)
 
         # save the results
         save_artifacts(

@@ -253,12 +253,15 @@ class FeedForwardBlock(nn.Module):
 
     def forward(self, x):
         out = self.net(x)
+        self.out = out
         return out
 
 
 class ReLU(nn.Module):
     def forward(self, x):
-        return (x > 0) * x
+        out = (x > 0) * x
+        self.out = out
+        return out
 
 
 class DecoderDifferentialTransformerBlock(nn.Module):
@@ -283,7 +286,7 @@ class DecoderDifferentialTransformerBlock(nn.Module):
         x = x + self.self_attn(self.ln1(x))
         x = x + self.ffwd_net(self.ln2(x))
         out = x
-
+        self.out = out
         return out
 
 
@@ -309,7 +312,7 @@ class DecoderTransformerBlock(nn.Module):
         x = x + self.self_attn(self.ln1(x))
         x = x + self.ffwd_net(self.ln2(x))
         out = x
-
+        self.out = out
         return out
 
 
@@ -328,6 +331,7 @@ class Linear(nn.Module):
             out = x @ self.weight + self.bias
         else:
             out = x @ self.weight
+        self.out = out
         return out
 
 
@@ -335,6 +339,7 @@ class Tanh(nn.Module):
     def forward(self, x):
         self.x = x
         out = F.tanh(x)
+        self.out = out
         return out
 
 
@@ -346,6 +351,7 @@ class Embedding(nn.Module):
     def forward(self, x):
         self.x = x
         out = self.weight[x]
+        self.out = out
         return out
 
 
@@ -418,13 +424,14 @@ class LinearBlock(nn.Module):
     def forward(self, x):
         self.x = x
         out = self.tanh(self.bn(self.linear(x)))
-
+        self.out = out
         return out
 
 
 class Flatten(nn.Module):
     def forward(self, x: torch.Tensor) -> torch.Tensor:
         out = x.view(x.size(0), -1)
+        self.out = out
         return out
 
 
@@ -438,6 +445,7 @@ class FlattenConsecutive(nn.Module):
         out = x.view(B, T // self.n, C * self.n)
         if out.shape[1] == 1:
             out = out.squeeze(1)
+        self.out = out
         return out
 
 
@@ -450,7 +458,8 @@ class Sequential(nn.Module):
         out = x
         for layer in self.layers:
             out = layer(out)
-
+        
+        self.out = out
         return out
 
 
