@@ -1,28 +1,16 @@
-[tool.poetry]
+[project]
 name = "bookbot"
 version = "0.1.0"
-description = "a package that trains a simple neural net to imitate the given pdf books."
-authors = ["Alper Balbay <itsc0508@gmail.com>"]
+description = "Add your description here"
 readme = "README.md"
-
-[tool.poetry.dependencies]
-python = "^3.11"
-torch = "^2.3.0"
-isort = "^5.13.2"
-numpy = "^1.26.4"
-pypdf = "^4.2.0"
-tqdm = "^4.66.4"
-pre-commit = "^3.7.1"
-matplotlib = "^3.9.1"
-scikit-learn = "^1.5.1"
-
-
-[tool.poetry.group.dev.dependencies]
-ruff = "^0.4.4"
-ipython = "^8.26.0"
-jupyter = "^1.0.0"
-mypy = "^1.11.1"
-
-[build-system]
-requires = ["poetry-core"]
-build-backend = "poetry.core.masonry.api"
+requires-python = ">=3.11"
+dependencies = [
+    "isort>=6.0.1",
+    "matplotlib>=3.10.3",
+    "numpy>=2.2.6",
+    "pre-commit>=4.2.0",
+    "pypdf>=5.5.0",
+    "scikit-learn>=1.6.1",
+    "torch>=2.7.0",
+    "tqdm>=4.67.1",
+]
