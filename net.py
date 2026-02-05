@@ -3,6 +3,13 @@ from torch import nn
 from torch.nn import functional as F
 
 
+class BaseModel(nn.Module):
+    """
+    Simple model class that has layer-specific backprop calculation.
+
+    """
+
+
 class Head(nn.Module):
     """one head of self-attention"""
 
@@ -56,27 +63,25 @@ class MultiHeadDifferentialAttention(nn.Module):
         self.block_size = block_size
         self.l_ix = l_ix
 
-        self.key1 = (
-            nn.Parameter(torch.randn(num_heads, n_embd, head_size))
-            * (num_heads * n_embd) ** -0.5
+        self.key1 = nn.Parameter(
+            torch.randn(num_heads, n_embd, head_size) * (num_heads * n_embd) ** -0.5
         )
-        self.key2 = (
-            nn.Parameter(torch.randn(num_heads, n_embd, head_size))
-            * (num_heads * n_embd) ** -0.5
+        self.key2 = nn.Parameter(
+            torch.randn(num_heads, n_embd, head_size) * (num_heads * n_embd) ** -0.5
         )
-        self.query1 = (
-            nn.Parameter(torch.randn(num_heads, n_embd, head_size))
-            * (num_heads * n_embd) ** -0.5
+        self.query1 = nn.Parameter(
+            torch.randn(num_heads, n_embd, head_size) * (num_heads * n_embd) ** -0.5
         )
-        self.query2 = (
-            nn.Parameter(torch.randn(num_heads, n_embd, head_size))
-            * (num_heads * n_embd) ** -0.5
+        self.query2 = nn.Parameter(
+            torch.randn(num_heads, n_embd, head_size) * (num_heads * n_embd) ** -0.5
         )
-        self.value = (
-            nn.Parameter(torch.randn(num_heads, n_embd, head_size))
-            * (num_heads * n_embd) ** -0.5
+        self.value = nn.Parameter(
+            torch.randn(num_heads, n_embd, head_size) * (num_heads * n_embd) ** -0.5
         )
-        self.initial_lambda = 0.8 - (0.6 * torch.exp(torch.tensor(-0.3 * (l_ix - 1))))
+        # Detach to prevent computation graph from persisting across forward passes
+        self.initial_lambda = (
+            0.8 - (0.6 * torch.exp(torch.tensor(-0.3 * (l_ix - 1))))
+        ).detach()
         self.lambdas = nn.Parameter(torch.randn(4))  # [q1, k1, q2, k2]
         self.proj = Linear(n_embd, n_embd)
 
@@ -104,7 +109,8 @@ class MultiHeadDifferentialAttention(nn.Module):
         B, T, C = x.shape
         x = x.unsqueeze(1)  # (batch_size, 1, context_length, n_embd)
 
-        self.reparameterized_lambda = (
+        # Use local variable to avoid storing computation graph state
+        reparameterized_lambda = (
             torch.exp(self.lambdas[0] * self.lambdas[1])
             - torch.exp(self.lambdas[2] * self.lambdas[3])
             + self.initial_lambda
@@ -128,7 +134,7 @@ class MultiHeadDifferentialAttention(nn.Module):
         wei1 = F.softmax(wei1, dim=-1)
         wei2 = F.softmax(wei2, dim=-1)
 
-        wei = wei1 - self.reparameterized_lambda * wei2
+        wei = wei1 - reparameterized_lambda * wei2
 
         v = x @ self.value  # (bs, 1, cl, ne) x (nh, ne, hs) -> (bs, nh, cl, hs)
         out = wei @ v  # (bs, nh, cl, cl) x (bs, nh, cl, hs) -> (bs, nh, cl, hs)
@@ -155,17 +161,14 @@ class MultiHeadAttention(nn.Module):
         self.head_size = head_size
         self.block_size = block_size
 
-        self.key = (
-            nn.Parameter(torch.randn(num_heads, n_embd, head_size))
-            * (num_heads * n_embd) ** -0.5
+        self.key = nn.Parameter(
+            torch.randn(num_heads, n_embd, head_size) * (num_heads * n_embd) ** -0.5
         )
-        self.query = (
-            nn.Parameter(torch.randn(num_heads, n_embd, head_size))
-            * (num_heads * n_embd) ** -0.5
+        self.query = nn.Parameter(
+            torch.randn(num_heads, n_embd, head_size) * (num_heads * n_embd) ** -0.5
         )
-        self.value = (
-            nn.Parameter(torch.randn(num_heads, n_embd, head_size))
-            * (num_heads * n_embd) ** -0.5
+        self.value = nn.Parameter(
+            torch.randn(num_heads, n_embd, head_size) * (num_heads * n_embd) ** -0.5
         )
 
         self.proj = Linear(n_embd, n_embd)
