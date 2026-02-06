@@ -94,4 +94,4 @@ The generation will run until the wanted character length is matched.
 
 ## Contributing
 
-While I'm open to new feature ideas and stuff, please let me do the coding part since I'm trying to improve my overall understanding. Thus, I'd love to accept any feature requests as new PRs. You can reach me from Discord (@alperiox) or my e-mail address (<alper_balbay@hacettepe.edu.tr>)
+While I'm open to new feature ideas and stuff, please let me do the coding part since I'm trying to improve my overall understanding. Thus, I'd love to accept any feature requests as new PRs. You can reach me from Discord (@alperiox)
