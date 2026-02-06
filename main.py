@@ -268,7 +268,7 @@ if __name__ == "__main__":
             save_path=save_path,
         )
         watcher = ww.WeightWatcher(model=model)
-        details = watcher.analyze(savefig="ww-logs", plot=True)
+        details = watcher.analyze(savefig="ww-logs")
         summary = watcher.get_summary(details)
 
         print("-" * 50)
