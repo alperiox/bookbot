@@ -12,7 +12,7 @@ Usage:
 import argparse
 import json
 import sys
-from dataclasses import asdict, dataclass, field
+from dataclasses import dataclass
 from datetime import datetime
 from typing import Any, Dict, List, Optional, Tuple
 

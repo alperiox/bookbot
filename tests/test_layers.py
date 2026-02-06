@@ -5,7 +5,6 @@ Minimal test to isolate which layer causes backward issues.
 import sys
 
 import torch
-import torch.nn as nn
 
 sys.path.insert(0, ".")
 from net import (
