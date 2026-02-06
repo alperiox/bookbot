@@ -3,6 +3,7 @@ import argparse
 import os
 
 import torch
+import weightwatcher as ww
 
 from net import GPDT, GPT, MLP, HierarchicalMLP
 from processors import CharLevelMLPProcessor, GPTProcessor
@@ -266,6 +267,9 @@ if __name__ == "__main__":
             test_loader=test_loader,
             save_path=save_path,
         )
+        watcher = ww.WeightWatcher(model=model)
+        details = watcher.analyze(savefig="ww-logs", plot=True)
+        summary = watcher.get_summary(details)
 
         print("-" * 50)
         print("TRAINED THE MODEL!")

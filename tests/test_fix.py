@@ -57,7 +57,7 @@ print("Testing FIXED MultiHeadAttention (scaling inside nn.Parameter)...")
 layer = FixedMultiHeadAttention(num_heads=3, n_embd=15, head_size=5, block_size=16)
 
 # Verify parameters are correct
-print(f"\nParameter check:")
+print("\nParameter check:")
 print(f"  self.key is nn.Parameter: {isinstance(layer.key, nn.Parameter)}")
 print(f"  self.key.grad_fn: {layer.key.grad_fn}")
 
